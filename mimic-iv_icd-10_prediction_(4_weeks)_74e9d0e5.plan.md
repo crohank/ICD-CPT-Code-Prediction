@@ -159,3 +159,26 @@ Build an ICD‑10 multi‑label classifier from **MIMIC‑IV discharge summaries
 - Full ICD‑10 is very large and imbalanced → keep Top‑K experiments as a safety net, report coverage, and emphasize micro-F1/recall@k.
 - Long discharge summaries → section filtering or sliding windows.
 - Compute constraints → baseline always works; transformer can be run with smaller models and fewer epochs.
+
+# Implementation notebooks
+
+| Notebook | Week | What it does |
+|---|---|---|
+| `notebooks/01_data_extraction.ipynb` | 1 | GCS auth, load MIMIC-IV tables, filter ICD-10, join notes↔codes, patient-level splits, EDA plots |
+| `notebooks/02_preprocessing.ipynb` | 2 | Text cleaning (MIMIC de-id artifacts), MultiLabelBinarizer, TF-IDF features → saved to Drive |
+| `notebooks/03_model_a_tfidf_baseline.ipynb` | 2 | OvR Logistic Regression / LinearSVC, threshold tuning, full metrics + head/tail/Top-K breakdown |
+| `notebooks/04_model_b_transformer.ipynb` | 3 | Bio_ClinicalBERT fine-tuning, section-based truncation for long notes, gradient accumulation, threshold tuning |
+| `notebooks/05_evaluation_demo.ipynb` | 4 | Side-by-side model comparison table, Top-K eval, qualitative error analysis, interactive prediction demo |
+
+# Key design decisions
+
+- **GCS auth**: uses `google.colab.auth.authenticate_user()` + `gcsfs` with `token='google_default'` — works directly with your PhysioNet-credentialed Google account.
+- **All outputs persist to Google Drive** at `MyDrive/mimic_icd/` so nothing is lost when Colab disconnects.
+- **Long-text strategy** (notebook 04): section-based truncation prioritizes "Discharge Diagnoses" → "Hospital Course" → "Chief Complaint" before the 512-token BERT limit.
+- **Data flow**: each notebook reads from Drive, so they can be run independently across sessions.
+
+# How to start
+
+1. Upload notebooks to Colab (File → Upload notebook, or sync via Drive).
+2. In notebook 01, verify `GCS_HOSPITAL` and `GCS_NOTE` paths match your PhysioNet MIMIC-IV version (currently set to `3.1` / `2.2`).
+3. Run notebooks in order: `01` → `02` → `03` (Member 1) and `04` (Member 2) → `05`.
