@@ -1,5 +1,5 @@
 # Ignore dataset files and directories
-/data/
+/datasets/
 
 # Ignore Python cache and environment files
 __pycache__/
@@ -14,4 +14,3 @@ __pycache__/
 *.swp
 *.swo
 *.DS_Store
-datasets/
