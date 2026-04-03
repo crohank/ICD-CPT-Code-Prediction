@@ -1,0 +1,16 @@
+# Ignore dataset files and directories
+/data/
+
+# Ignore Python cache and environment files
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Ignore notebook checkpoints
+.ipynb_checkpoints/
+
+# Ignore temporary files
+*.swp
+*.swo
+*.DS_Store
