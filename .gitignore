@@ -7,8 +7,9 @@ __pycache__/
 *.pyo
 *.pyd
 
-# Ignore notebook checkpoints
+# Ignore notebook checkpoints and output snapshots
 .ipynb_checkpoints/
+notebooks_local/archive/
 
 # Ignore temporary files
 *.swp
