@@ -204,15 +204,4 @@ git commit -m "..."
 ```
 `nbstripout` automatically strips cell outputs before staging — git only tracks code diffs. Your local notebook file still shows outputs.
 
-## Files created
-- `.gitattributes` — activates nbstripout filter for all `.ipynb` files
-- `scripts/snapshot_notebooks.py` — snapshot helper script
-- `requirements.txt` — project dependencies
-- `notebooks_local/archive/` — excluded from git via `.gitignore`
 
-## Local notebooks
-Located in `notebooks_local/` — identical logic to `notebooks/` but adapted for local use:
-- Reads from `../datasets/` (flat uncompressed CSVs: `discharge.csv`, `diagnoses_icd.csv`, `procedures_icd.csv`)
-- Outputs to `../datasets/processed/`
-- No Google Drive mount or GCS authentication required
-- Run in order: `01` → `02` → `03` → `04` → `05`
