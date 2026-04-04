@@ -182,3 +182,37 @@ Build an ICD‑10 multi‑label classifier from **MIMIC‑IV discharge summaries
 1. Upload notebooks to Colab (File → Upload notebook, or sync via Drive).
 2. In notebook 01, verify `GCS_HOSPITAL` and `GCS_NOTE` paths match your PhysioNet MIMIC-IV version (currently set to `3.1` / `2.2`).
 3. Run notebooks in order: `01` → `02` → `03` (Member 1) and `04` (Member 2) → `05`.
+
+# Local version control workflow
+
+## Setup (already done)
+- `nbstripout` installed and registered as a git filter via `.gitattributes` — cell outputs are automatically stripped before every commit so git history stays clean (code diffs only).
+- `scripts/snapshot_notebooks.py` — saves timestamped copies of all notebooks with outputs intact to `notebooks_local/archive/`.
+- `requirements.txt` — captures all project dependencies.
+
+## Before rerunning a notebook
+Run the snapshot script to preserve current outputs:
+```
+C:\Users\croha\AppData\Local\Programs\Python\Python313\python.exe scripts/snapshot_notebooks.py
+```
+This saves all 5 notebooks to `notebooks_local/archive/YYYY-MM-DD_HHMMSS/`. Open any archived notebook in VS Code to recover past outputs.
+
+## After making changes
+```
+git add notebooks_local/
+git commit -m "..."
+```
+`nbstripout` automatically strips cell outputs before staging — git only tracks code diffs. Your local notebook file still shows outputs.
+
+## Files created
+- `.gitattributes` — activates nbstripout filter for all `.ipynb` files
+- `scripts/snapshot_notebooks.py` — snapshot helper script
+- `requirements.txt` — project dependencies
+- `notebooks_local/archive/` — excluded from git via `.gitignore`
+
+## Local notebooks
+Located in `notebooks_local/` — identical logic to `notebooks/` but adapted for local use:
+- Reads from `../datasets/` (flat uncompressed CSVs: `discharge.csv`, `diagnoses_icd.csv`, `procedures_icd.csv`)
+- Outputs to `../datasets/processed/`
+- No Google Drive mount or GCS authentication required
+- Run in order: `01` → `02` → `03` → `04` → `05`
