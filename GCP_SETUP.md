@@ -61,33 +61,90 @@ PhysioNet GCS: gs://physionet-data/  ← MIMIC-IV raw data
 
 ---
 
-## Part 2: Create the GCP VM
+## Part 2: Choose Your GPU
+
+All GPUs below run the notebooks without code changes. The batch-size auto-detection handles all of them.
+
+| GPU | VRAM | Machine type | Price/hr | Model B batch | Top-50 train | Top-500 train | Total cost* |
+|-----|------|-------------|---------|--------------|-------------|--------------|-------------|
+| **T4** | 16 GB | `n1-standard-8` | ~$0.55 | 16 | ~90 min | ~4 hrs | ~$2 |
+| **L4** ← recommended | 24 GB | `g2-standard-8` | ~$0.85 | 32 | ~55 min | ~2.5 hrs | ~$2.50 |
+| **A100 40GB** | 40 GB | `a2-highgpu-1g` | ~$3.67 | 64 | ~25 min | ~1 hr | ~$8 |
+| **A100 80GB** | 80 GB | `a2-ultragpu-1g` | ~$5.50 | 128 | ~18 min | ~45 min | ~$12 |
+| V100 | 16 GB | `n1-standard-8` | ~$2.48 | 16 | ~85 min | ~4 hrs | ~$8 | ← skip, not worth it |
+
+*Total cost = notebooks 01–05, both Top-50 and Top-500 runs
+
+**Recommendation: L4 (`g2-standard-8`)**
+- 50% more VRAM than T4 → batch_size=32 instead of 16 → nearly 2x faster
+- Only ~$0.30/hr more than T4
+- Full pipeline costs ~$2.50 from your $300 credits
+- Available in `us-central1-a`, `us-east1-b`, `europe-west4-a`
+
+**Use A100 if:** you want fast iteration (e.g., tuning hyperparameters, re-running multiple times). Still only ~$8 total from $300.
+
+**Skip V100:** same VRAM as T4 but 4-5x more expensive. Not worth it.
+
+> **GPU quota:** Before creating a VM, check you have quota for the GPU type. Go to **IAM & Admin → Quotas**, search for the GPU name in your target region. If quota = 0, request an increase — usually approved in minutes for T4/L4.
+
+## Part 3: Create the GCP VM
 
 Use the **Deep Learning VM** image — it comes with CUDA, PyTorch, and JupyterLab pre-installed, saving ~1 hour of manual setup.
 
-### 2.1 Create the instance via Cloud Console
+### 3.1 Create the instance via Cloud Console
 
 1. Go to **Compute Engine → VM instances → Create instance**
-2. Fill in:
+2. Fill in based on your chosen GPU:
+
+**For L4 (recommended):**
 
 | Field | Value |
 |-------|-------|
 | Name | `mimic-gpu` |
-| Region | `us-central1` (Iowa) — cheapest T4 region |
+| Region | `us-central1` |
 | Zone | `us-central1-a` |
-| Machine type | `n1-standard-8` (8 vCPU, 30 GB RAM) |
-| GPU | **Add GPU → NVIDIA T4 → 1** |
+| Machine type | `g2-standard-8` (8 vCPU, 32 GB RAM) |
+| GPU | Already included in g2 machines — shows 1x L4 automatically |
 | Boot disk | Click **Change** → **Deep Learning on Linux** → `PyTorch 2.x + CUDA 12.x` → 100 GB SSD |
 | Firewall | ✅ Allow HTTP / ✅ Allow HTTPS |
 
+**For A100 40GB:**
+
+| Field | Value |
+|-------|-------|
+| Machine type | `a2-highgpu-1g` (12 vCPU, 85 GB RAM, 1x A100 40GB — GPU included) |
+| Region/Zone | `us-central1-c` or `us-east1-b` (A100 availability varies) |
+| Boot disk | Same Deep Learning VM image |
+
 3. Click **Create** — VM starts in ~2 min
 
-> **Cost estimate:** `n1-standard-8 + T4` costs ~$0.55/hr. The full pipeline (10–15 hrs of compute) costs **~$6–8** from your $300 credits. Stop the VM when not training to avoid idle charges.
+### 3.2 (Optional) Use gcloud CLI
 
-### 2.2 (Optional) Use gcloud CLI instead
+**L4:**
+```bash
+gcloud compute instances create mimic-gpu \
+  --zone=us-central1-a \
+  --machine-type=g2-standard-8 \
+  --image-family=pytorch-latest-gpu \
+  --image-project=deeplearning-platform-release \
+  --boot-disk-size=100GB \
+  --boot-disk-type=pd-ssd \
+  --maintenance-policy=TERMINATE
+```
 
-If you prefer the terminal (faster once gcloud is installed locally):
+**A100 40GB:**
+```bash
+gcloud compute instances create mimic-gpu \
+  --zone=us-central1-c \
+  --machine-type=a2-highgpu-1g \
+  --image-family=pytorch-latest-gpu \
+  --image-project=deeplearning-platform-release \
+  --boot-disk-size=100GB \
+  --boot-disk-type=pd-ssd \
+  --maintenance-policy=TERMINATE
+```
 
+**T4 (if L4 quota unavailable):**
 ```bash
 gcloud compute instances create mimic-gpu \
   --zone=us-central1-a \
@@ -103,9 +160,9 @@ gcloud compute instances create mimic-gpu \
 
 ---
 
-## Part 3: One-Time VM Setup (~15 min)
+## Part 4: One-Time VM Setup (~15 min)
 
-### 3.1 SSH into the VM
+### 4.1 SSH into the VM
 
 **Option A — Cloud Console (easiest):**
 Compute Engine → VM instances → click **SSH** button next to your VM. A browser terminal opens.
@@ -115,21 +172,21 @@ Compute Engine → VM instances → click **SSH** button next to your VM. A brow
 gcloud compute ssh mimic-gpu --zone=us-central1-a
 ```
 
-### 3.2 Verify GPU is ready
+### 4.2 Verify GPU is ready
 
 ```bash
 nvidia-smi
 ```
 Should show a T4 GPU. If not, run `sudo /opt/deeplearning/install-driver.sh` and reboot.
 
-### 3.3 Install the Colab custom runtime extension
+### 4.3 Install the Colab custom runtime extension
 
 ```bash
 pip install jupyter_http_over_ws
 jupyter server extension enable --py jupyter_http_over_ws
 ```
 
-### 3.4 Authenticate with PhysioNet GCS
+### 4.4 Authenticate with PhysioNet GCS
 
 This is a one-time auth on the VM. Run this in the SSH terminal:
 
@@ -139,7 +196,7 @@ gcloud auth application-default login --no-launch-browser
 
 A URL is printed. Open it in your browser, sign in with your **PhysioNet/school account**, and paste the verification code back into the terminal. Done — credentials are saved to the VM permanently.
 
-### 3.5 Clone the repo
+### 4.5 Clone the repo
 
 ```bash
 cd ~
@@ -151,7 +208,7 @@ pip install -r requirements.txt
 
 ---
 
-## Part 4: Connect Free Colab to the GCP VM
+## Part 5: Connect Free Colab to the GCP VM
 
 Do this every time you want to work (takes ~1 min).
 
@@ -203,7 +260,7 @@ The indicator turns green and shows **RAM/Disk bars** — that's your GCP VM's r
 
 ---
 
-## Part 5: Run the Notebooks
+## Part 6: Run the Notebooks
 
 The notebooks in `notebooks/` run **completely unchanged**. The Drive mount works (mounts to the VM), GCS auth works (already done in Step 3.4). Run them in order:
 
@@ -265,7 +322,7 @@ Open `notebooks/05_evaluation_demo.ipynb`. Produces the final comparison table.
 
 ---
 
-## Part 6: Managing the VM (Important — Avoid Wasted Credits)
+## Part 7: Managing the VM (Important — Avoid Wasted Credits)
 
 ### Stop the VM when not training
 **Compute Engine → VM instances → select `mimic-gpu` → Stop**
@@ -282,7 +339,7 @@ Then re-run Part 4 (start Jupyter, open SSH tunnel, connect Colab). Your Drive d
 
 ---
 
-## Part 7: Cost Breakdown
+## Part 8: Cost Breakdown
 
 | Task | Duration | Cost (standard) | Cost (preemptible*) |
 |------|----------|----------------|---------------------|
@@ -300,7 +357,7 @@ Then re-run Part 4 (start Jupyter, open SSH tunnel, connect Colab). Your Drive d
 
 ---
 
-## Part 8: Troubleshooting
+## Part 9: Troubleshooting
 
 ### "Could not connect to local runtime"
 - SSH tunnel has dropped — rerun the tunnel command in Part 4 Step 2
@@ -339,7 +396,7 @@ Confirm you're using the project connected to the free trial. Check **Billing �
 
 ---
 
-## Part 9: Run Order & Time Summary
+## Part 10: Run Order & Time Summary
 
 ```
 VM running + SSH tunnel open + Colab connected
