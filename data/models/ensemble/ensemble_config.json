@@ -1,0 +1,16 @@
+{
+  "weight_model_a": 0.65,
+  "weight_model_c": 0.35,
+  "threshold": 0.6250000000000002,
+  "val_micro_f1": 0.6293603160572927,
+  "test_results": {
+    "Model": "Ensemble (w=0.65)",
+    "Threshold": 0.625,
+    "Micro-F1": 0.6249,
+    "Macro-F1": 0.5923,
+    "Micro-Prec": 0.5712,
+    "Micro-Rec": 0.6897,
+    "Macro-AUPRC": 0.5921,
+    "Micro-AUROC": 0.9328
+  }
+}
