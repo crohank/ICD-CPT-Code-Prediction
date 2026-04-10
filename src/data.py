@@ -75,6 +75,88 @@ def load_label_binarizer():
         return pickle.load(f)
 
 
+# ── ICD-10 Code Descriptions (for semantic label initialization) ───────
+
+# Top-50 ICD-10 code descriptions (manually curated from CMS)
+# Used by LabelAttentionClassifier.init_label_queries_from_descriptions()
+ICD10_DESCRIPTIONS = {
+    "E119":  "Type 2 diabetes mellitus without complications",
+    "I10":   "Essential primary hypertension",
+    "E780":  "Pure hypercholesterolemia",
+    "E785":  "Hyperlipidemia unspecified",
+    "Z87891":"Personal history of nicotine dependence",
+    "I2510": "Atherosclerotic heart disease of native coronary artery without angina pectoris",
+    "Z7901": "Long term current use of anticoagulants",
+    "N179":  "Acute kidney failure unspecified",
+    "E1165": "Type 2 diabetes mellitus with hyperglycemia",
+    "Z79899":"Other long term current drug therapy",
+    "I4891": "Unspecified atrial fibrillation",
+    "Z7982": "Long term current use of aspirin",
+    "I509":  "Heart failure unspecified",
+    "J449":  "Chronic obstructive pulmonary disease unspecified",
+    "Z66":   "Do not resuscitate status",
+    "E1122": "Type 2 diabetes mellitus with diabetic chronic kidney disease",
+    "I2699": "Other pulmonary embolism without acute cor pulmonale",
+    "N189":  "Chronic kidney disease unspecified",
+    "D649":  "Anemia unspecified",
+    "K219":  "Gastro esophageal reflux disease without esophagitis",
+    "I480":  "Paroxysmal atrial fibrillation",
+    "Z794":  "Long term current use of insulin",
+    "N390":  "Urinary tract infection site not specified",
+    "G4733": "Obstructive sleep apnea",
+    "J9601": "Acute respiratory failure with hypoxia",
+    "E876":  "Hypokalemia",
+    "I482":  "Chronic atrial fibrillation",
+    "Z951":  "Presence of aortocoronary bypass graft",
+    "F329":  "Major depressive disorder single episode unspecified",
+    "I350":  "Nonrheumatic aortic valve stenosis",
+    "Z930":  "Tracheostomy status",
+    "I5020": "Unspecified systolic congestive heart failure",
+    "J189":  "Pneumonia unspecified organism",
+    "Z8546": "Personal history of malignant neoplasm of prostate",
+    "G8929": "Other chronic pain",
+    "E039":  "Hypothyroidism unspecified",
+    "I4892": "Unspecified atrial flutter",
+    "Z853":  "Personal history of malignant neoplasm of breast",
+    "Z9811": "Acquired absence of right knee joint",
+    "I252":  "Old myocardial infarction",
+    "B9620": "Unspecified Escherichia coli as the cause of diseases classified elsewhere",
+    "J9600": "Acute respiratory failure with hypercapnia",
+    "R6520": "Severe sepsis without septic shock",
+    "Z68.41":"Body mass index 40.0 to 44.9 adult",
+    "K5900": "Constipation unspecified",
+    "Z79.01":"Long term current use of anticoagulants",
+    "N183":  "Chronic kidney disease stage 3 unspecified",
+    "N184":  "Chronic kidney disease stage 4",
+    "Z87.11":"Personal history of peptic ulcer disease",
+    "I5032": "Chronic diastolic congestive heart failure",
+}
+
+
+def get_icd_descriptions(vocab: list) -> list:
+    """
+    Get ICD-10 descriptions for a list of codes.
+    Falls back to the code itself if no description is available.
+
+    Args:
+        vocab: list of ICD-10 code strings
+
+    Returns:
+        list of description strings (same order as vocab)
+    """
+    descriptions = []
+    for code in vocab:
+        # Try exact match first, then normalized versions
+        desc = ICD10_DESCRIPTIONS.get(code)
+        if desc is None:
+            desc = ICD10_DESCRIPTIONS.get(code.replace('.', ''))
+        if desc is None:
+            # Fallback: use the code itself as description
+            desc = f"ICD-10 code {code}"
+        descriptions.append(desc)
+    return descriptions
+
+
 def build_label_matrix(df, mlb):
     """Transform ICD code lists into a binary label matrix."""
     return mlb.transform(df['icd_codes']).astype(np.float32)

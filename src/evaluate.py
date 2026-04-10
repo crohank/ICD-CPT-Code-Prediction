@@ -131,12 +131,15 @@ def head_tail_analysis(
     return label_df, summary
 
 
-def compute_pos_weights(Y_train: np.ndarray, clamp_max: float = 50.0) -> np.ndarray:
+def compute_pos_weights(Y_train: np.ndarray, clamp_max: float = 10.0) -> np.ndarray:
     """
     Compute positive class weights for BCEWithLogitsLoss.
     pos_weight[j] = (N - n_j) / n_j, clamped to [1, clamp_max].
 
-    This helps the model pay more attention to rare labels.
+    NOTE: clamp_max reduced from 50 to 10 in v2 to prevent probability
+    miscalibration. High pos_weight pushes sigmoid outputs to extremes,
+    requiring abnormally high thresholds (0.625 observed in v1).
+    For better calibration, consider using focal loss instead.
     """
     n_samples = Y_train.shape[0]
     pos_counts = Y_train.sum(axis=0)
@@ -148,3 +151,37 @@ def compute_pos_weights(Y_train: np.ndarray, clamp_max: float = 50.0) -> np.ndar
     weights = neg_counts / pos_counts
     weights = np.clip(weights, 1.0, clamp_max)
     return weights.astype(np.float32)
+
+
+def expected_calibration_error(
+    probs: np.ndarray, labels: np.ndarray, n_bins: int = 15,
+) -> float:
+    """
+    Compute Expected Calibration Error (ECE) for multi-label predictions.
+    Lower is better — 0.0 means perfectly calibrated.
+
+    Args:
+        probs: (n_samples, n_labels) predicted probabilities
+        labels: (n_samples, n_labels) binary labels
+        n_bins: number of bins for calibration
+
+    Returns:
+        ECE score (float)
+    """
+    # Flatten to treat all (sample, label) pairs equally
+    p_flat = probs.ravel()
+    y_flat = labels.ravel()
+
+    bin_boundaries = np.linspace(0, 1, n_bins + 1)
+    ece = 0.0
+    total = len(p_flat)
+
+    for i in range(n_bins):
+        mask = (p_flat >= bin_boundaries[i]) & (p_flat < bin_boundaries[i + 1])
+        if mask.sum() == 0:
+            continue
+        bin_conf = p_flat[mask].mean()
+        bin_acc  = y_flat[mask].mean()
+        ece += (mask.sum() / total) * abs(bin_acc - bin_conf)
+
+    return ece

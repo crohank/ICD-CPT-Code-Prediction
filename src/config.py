@@ -41,15 +41,19 @@ MODEL_B_WARMUP     = 0.1
 MODEL_B_DROPOUT    = 0.1
 
 # ── Model C training hyperparams ───────────────────────────────────────
-MODEL_C_MAX_CHUNKS     = 6       # max 512-token chunks per document
-MODEL_C_CHUNK_STRIDE   = 256     # overlap between chunks (50%)
-MODEL_C_FROZEN_LR      = 1e-3    # LR when BERT is frozen
-MODEL_C_FINETUNE_LR    = 2e-5    # LR when fine-tuning BERT layers
-MODEL_C_FROZEN_EPOCHS  = 5       # epochs with frozen BERT
-MODEL_C_FINETUNE_EPOCHS = 3      # epochs with unfrozen last 2 layers
-MODEL_C_BATCH_SIZE     = 4       # smaller batch due to multiple chunks
-MODEL_C_GRAD_ACCUM     = 8       # effective batch = 4 * 8 = 32
-MODEL_C_DROPOUT        = 0.1
+MODEL_C_MAX_CHUNKS      = 6       # max 512-token chunks per document
+MODEL_C_CHUNK_STRIDE    = 256     # overlap between chunks (50%)
+MODEL_C_FROZEN_LR       = 1e-3    # LR when BERT is frozen
+MODEL_C_FINETUNE_LR     = 2e-5    # LR when fine-tuning BERT layers
+MODEL_C_FROZEN_EPOCHS   = 5       # epochs with frozen BERT
+MODEL_C_FINETUNE_EPOCHS = 7       # epochs with unfrozen last 2 layers (was 3, increased for convergence)
+MODEL_C_BATCH_SIZE      = 4       # smaller batch due to multiple chunks
+MODEL_C_GRAD_ACCUM      = 8       # effective batch = 4 * 8 = 32
+MODEL_C_DROPOUT         = 0.1
+MODEL_C_POS_WEIGHT_MAX  = 10.0    # clamp pos_weight (was 50, reduced to fix calibration)
+MODEL_C_FOCAL_GAMMA     = 2.0     # focal loss gamma (0 = standard BCE)
+MODEL_C_FOCAL_ALPHA     = 0.25    # focal loss alpha
+MODEL_C_EARLY_STOP      = 3       # early stopping patience (epochs without improvement)
 
 # ── General ────────────────────────────────────────────────────────────
 SEED          = 42

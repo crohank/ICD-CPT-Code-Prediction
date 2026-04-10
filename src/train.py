@@ -1,11 +1,13 @@
 """
 Unified training loop for Model B and Model C.
-Supports fp16 mixed precision, gradient accumulation, mid-epoch checkpointing.
+Supports fp16 mixed precision, gradient accumulation, focal loss,
+early stopping, and mid-epoch checkpointing.
 """
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 from transformers import get_linear_schedule_with_warmup
@@ -13,6 +15,7 @@ from sklearn.metrics import f1_score
 from pathlib import Path
 
 from .config import SEED, USE_AMP
+from .evaluate import tune_global_threshold
 
 
 def set_seed(seed: int = SEED):
@@ -24,6 +27,51 @@ def set_seed(seed: int = SEED):
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
+
+# ═══════════════════════════════════════════════════════════════════════
+#  Focal Loss — handles class imbalance without distorting calibration
+# ═══════════════════════════════════════════════════════════════════════
+
+def sigmoid_focal_loss(
+    logits: torch.Tensor,
+    targets: torch.Tensor,
+    alpha: float = 0.25,
+    gamma: float = 2.0,
+    reduction: str = 'mean',
+) -> torch.Tensor:
+    """
+    Focal Loss for multi-label classification.
+    FL(p_t) = -alpha_t * (1 - p_t)^gamma * log(p_t)
+
+    Unlike BCEWithLogitsLoss + pos_weight, focal loss down-weights easy
+    examples without distorting probability calibration.
+
+    Args:
+        logits:  (batch, num_labels) raw logits
+        targets: (batch, num_labels) binary labels
+        alpha:   weighting factor for positive class (0.25 default)
+        gamma:   focusing parameter (higher = more focus on hard examples)
+        reduction: 'mean', 'sum', or 'none'
+    """
+    p = torch.sigmoid(logits)
+    ce_loss = F.binary_cross_entropy_with_logits(logits, targets, reduction='none')
+
+    p_t = p * targets + (1 - p) * (1 - targets)
+    alpha_t = alpha * targets + (1 - alpha) * (1 - targets)
+
+    focal_weight = alpha_t * (1 - p_t) ** gamma
+    loss = focal_weight * ce_loss
+
+    if reduction == 'mean':
+        return loss.mean()
+    elif reduction == 'sum':
+        return loss.sum()
+    return loss
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  Training Loop
+# ═══════════════════════════════════════════════════════════════════════
 
 def train_model(
     model: nn.Module,
@@ -39,12 +87,16 @@ def train_model(
     max_grad_norm: float = 1.0,
     use_amp: bool = USE_AMP,
     pos_weight: torch.Tensor = None,
+    use_focal_loss: bool = False,
+    focal_gamma: float = 2.0,
+    focal_alpha: float = 0.25,
     checkpoint_every: int = 2000,
     is_chunked: bool = False,
+    early_stopping_patience: int = 0,
     device: str = None,
 ):
     """
-    Train a multi-label classification model with BCEWithLogitsLoss.
+    Train a multi-label classification model.
 
     Args:
         model:            nn.Module with forward() returning logits
@@ -60,12 +112,17 @@ def train_model(
         max_grad_norm:    gradient clipping norm
         use_amp:          whether to use fp16 mixed precision
         pos_weight:       optional per-label positive class weights for BCE
+                          (ignored if use_focal_loss=True)
+        use_focal_loss:   if True, use focal loss instead of BCE
+        focal_gamma:      focal loss gamma (focusing parameter)
+        focal_alpha:      focal loss alpha (positive class weight)
         checkpoint_every: save mid-epoch checkpoint every N steps
         is_chunked:       True for Model C (passes chunk_counts to forward)
+        early_stopping_patience: stop if val_f1 doesn't improve for N epochs (0=disabled)
         device:           'cuda' or 'cpu' (auto-detected if None)
 
     Returns:
-        history: list of dicts with epoch, train_loss, val_micro_f1
+        history: list of dicts with epoch, train_loss, val_micro_f1, val_tuned_f1, best_threshold
     """
     if device is None:
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -83,19 +140,29 @@ def train_model(
     )
     scheduler = get_linear_schedule_with_warmup(optimizer, warmup_steps, total_steps)
 
-    # Loss function
-    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight.to(device) if pos_weight is not None else None)
+    # Loss function (FIX #2: focal loss option replaces aggressive pos_weight)
+    if use_focal_loss:
+        print(f"  Using Focal Loss (gamma={focal_gamma}, alpha={focal_alpha})")
+        criterion = None  # will call sigmoid_focal_loss directly
+    else:
+        pw = pos_weight.to(device) if pos_weight is not None else None
+        criterion = nn.BCEWithLogitsLoss(pos_weight=pw)
+        if pw is not None:
+            print(f"  Using BCEWithLogitsLoss (pos_weight range: "
+                  f"[{pw.min():.1f}, {pw.max():.1f}])")
 
     # Mixed precision
     use_amp = use_amp and device == 'cuda'
     scaler = torch.amp.GradScaler(device, enabled=use_amp)
 
     best_val_f1 = 0.0
+    epochs_without_improvement = 0
     history = []
 
     for epoch in range(1, epochs + 1):
         model.train()
         total_loss = 0.0
+        num_batches = 0
         optimizer.zero_grad()
 
         for step, batch in enumerate(train_loader):
@@ -109,10 +176,18 @@ def train_model(
                     logits = model(ids, mask, chunk_counts=chunk_counts)
                 else:
                     logits = model(ids, mask)
-                loss = criterion(logits, labels) / grad_accum
+
+                if use_focal_loss:
+                    loss = sigmoid_focal_loss(logits, labels,
+                                              alpha=focal_alpha,
+                                              gamma=focal_gamma) / grad_accum
+                else:
+                    loss = criterion(logits, labels) / grad_accum
 
             scaler.scale(loss).backward()
+            # FIX #6: track true loss (undo grad_accum scaling for logging)
             total_loss += loss.item() * grad_accum
+            num_batches += 1
 
             if (step + 1) % grad_accum == 0:
                 scaler.unscale_(optimizer)
@@ -124,7 +199,7 @@ def train_model(
 
             # Progress logging
             if (step + 1) % 500 == 0:
-                avg = total_loss / (step + 1)
+                avg = total_loss / num_batches
                 gpu_info = ""
                 if device == 'cuda':
                     mem = torch.cuda.memory_allocated() / 1e9
@@ -144,30 +219,47 @@ def train_model(
                 print(f'  -> mid-epoch checkpoint saved')
 
         # End-of-epoch validation
-        avg_loss = total_loss / len(train_loader)
-        val_f1, P_val, Y_val = evaluate_predictions(
-            model, val_loader, device=device, use_amp=use_amp,
-            is_chunked=is_chunked,
+        avg_loss = total_loss / num_batches
+
+        # FIX #3: Evaluate with threshold tuning (not hardcoded 0.5)
+        _, P_val, Y_val = evaluate_predictions(
+            model, val_loader, threshold=0.5,
+            device=device, use_amp=use_amp, is_chunked=is_chunked,
         )
+        # Tune threshold on validation predictions
+        best_t, tuned_f1 = tune_global_threshold(P_val, Y_val)
+        # Also compute F1 at default 0.5 for comparison
+        default_f1 = f1_score(Y_val, (P_val >= 0.5).astype(int),
+                               average='micro', zero_division=0)
+
         history.append({
             'epoch': epoch,
             'train_loss': round(avg_loss, 4),
-            'val_micro_f1': round(val_f1, 4),
+            'val_f1_at_0.5': round(default_f1, 4),
+            'val_f1_tuned': round(tuned_f1, 4),
+            'best_threshold': round(best_t, 3),
         })
         print(f'Epoch {epoch}/{epochs}  loss={avg_loss:.4f}  '
-              f'val_micro_F1={val_f1:.4f}')
+              f'val_F1@0.5={default_f1:.4f}  '
+              f'val_F1@{best_t:.3f}={tuned_f1:.4f}')
 
-        # Save best checkpoint
-        if val_f1 > best_val_f1:
-            best_val_f1 = val_f1
+        # Save best checkpoint (using TUNED F1, not default threshold)
+        if tuned_f1 > best_val_f1:
+            best_val_f1 = tuned_f1
+            epochs_without_improvement = 0
             torch.save(model.state_dict(), save_dir / 'best_model.pt')
             np.save(save_dir / 'P_val_best.npy', P_val)
             np.save(save_dir / 'Y_val_best.npy', Y_val)
-            print('  -> saved best checkpoint')
+            print(f'  -> saved best checkpoint (tuned F1={tuned_f1:.4f} @ t={best_t:.3f})')
+        else:
+            epochs_without_improvement += 1
+            if early_stopping_patience > 0 and epochs_without_improvement >= early_stopping_patience:
+                print(f'  -> Early stopping: no improvement for {early_stopping_patience} epochs')
+                break
 
     # Save training history
     pd.DataFrame(history).to_csv(save_dir / 'training_history.csv', index=False)
-    print(f'Training complete. Best val micro-F1: {best_val_f1:.4f}')
+    print(f'Training complete. Best val tuned micro-F1: {best_val_f1:.4f}')
     return history
 
 
@@ -209,3 +301,37 @@ def evaluate_predictions(
     micro_f1 = f1_score(Y, (P >= threshold).astype(int),
                          average='micro', zero_division=0)
     return micro_f1, P, Y
+
+
+@torch.no_grad()
+def collect_logits(
+    model: nn.Module,
+    loader: DataLoader,
+    device: str = 'cuda',
+    use_amp: bool = True,
+    is_chunked: bool = False,
+):
+    """
+    Collect raw logits (before sigmoid) for temperature scaling calibration.
+
+    Returns:
+        logits (n_samples, n_labels), labels (n_samples, n_labels)
+    """
+    model.eval()
+    all_logits, all_labels = [], []
+
+    for batch in loader:
+        ids  = batch['input_ids'].to(device)
+        mask = batch['attention_mask'].to(device)
+
+        with torch.amp.autocast(device, enabled=use_amp and device == 'cuda'):
+            if is_chunked:
+                chunk_counts = batch['chunk_count'].to(device) if 'chunk_count' in batch else None
+                logits = model(ids, mask, chunk_counts=chunk_counts)
+            else:
+                logits = model(ids, mask)
+
+        all_logits.append(logits.cpu().float().numpy())
+        all_labels.append(batch['labels'].numpy())
+
+    return np.vstack(all_logits), np.vstack(all_labels)
