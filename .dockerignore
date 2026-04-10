@@ -1,0 +1,14 @@
+.git
+.gitignore
+*.md
+notebooks/
+notebooks_local/
+scripts/
+tests/
+.claude/
+__pycache__
+*.pyc
+*.ipynb_checkpoints
+datasets/raw/
+*.csv
+*.plan.md

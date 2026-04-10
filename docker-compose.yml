@@ -1,0 +1,34 @@
+version: "3.8"
+
+services:
+  icd-api:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./datasets:/app/datasets
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+
+  demo:
+    image: python:3.10-slim
+    working_dir: /app
+    command: >
+      bash -c "pip install streamlit requests pandas &&
+               streamlit run demo/streamlit_app.py --server.port 8501 --server.address 0.0.0.0"
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./demo:/app/demo
+    depends_on:
+      - icd-api
+    environment:
+      - API_URL=http://icd-api:8000

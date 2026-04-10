@@ -1,0 +1,5 @@
+# Streamlit demo dependencies
+-r requirements-api.txt
+streamlit>=1.30
+requests>=2.28
+plotly>=5.15
