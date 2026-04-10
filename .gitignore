@@ -15,3 +15,8 @@ notebooks_local/archive/
 *.swp
 *.swo
 *.DS_Store
+
+# Large model files
+data/models/model_b/*.pt
+data/models/model_b/*.npy
+data/models/model_a/*.pkl
