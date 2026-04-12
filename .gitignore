@@ -20,3 +20,4 @@ notebooks_local/archive/
 data/models/model_b/*.pt
 data/models/model_b/*.npy
 data/models/model_a/*.pkl
+*.pt
