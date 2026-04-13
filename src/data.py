@@ -10,9 +10,12 @@ import torch
 from torch.utils.data import Dataset
 from transformers import AutoTokenizer
 
+from collections import Counter
+
 from .config import (
     DATA_DIR, SECTION_PATTERNS, MAX_SEQ_LEN, TRANSFORMER_MODEL,
     MODEL_C_MAX_CHUNKS, MODEL_C_CHUNK_STRIDE,
+    MODEL_D_MAX_TOKENS, MODEL_D_VOCAB_SIZE,
 )
 
 # ── Text cleaning ──────────────────────────────────────────────────────
@@ -284,5 +287,76 @@ class ChunkedICDDataset(Dataset):
             'input_ids':      input_ids,         # (max_chunks, max_seq_len)
             'attention_mask': attention_mask,     # (max_chunks, max_seq_len)
             'chunk_count':    chunk_count,        # int
+            'labels':         torch.tensor(self.labels[idx], dtype=torch.float32),
+        }
+
+
+# ── Word Vocabulary (Model D — BiLSTM) ──────────────────────────────
+
+PAD_IDX = 0
+UNK_IDX = 1
+
+def build_word_vocab(texts, max_vocab_size: int = MODEL_D_VOCAB_SIZE):
+    """
+    Build a word-level vocabulary from a list of texts.
+    Returns a dict mapping word → index (0=<PAD>, 1=<UNK>, 2+ = words).
+    """
+    counter = Counter()
+    for text in texts:
+        counter.update(text.split())
+
+    # Most common words (reserve 0 for PAD, 1 for UNK)
+    most_common = counter.most_common(max_vocab_size - 2)
+    word2idx = {'<PAD>': PAD_IDX, '<UNK>': UNK_IDX}
+    for i, (word, _) in enumerate(most_common):
+        word2idx[word] = i + 2
+
+    print(f'Built word vocab: {len(word2idx):,} words '
+          f'(from {len(counter):,} unique tokens)')
+    return word2idx
+
+
+# ── BiLSTM Dataset (Model D — word-level tokenization) ──────────────
+
+class BiLSTMDataset(Dataset):
+    """
+    Dataset for BiLSTM model.  Tokenizes at the word level (whitespace split),
+    maps to vocabulary indices, and pads/truncates to max_tokens.
+
+    Returns:
+        input_ids:      (max_tokens,)      word indices
+        attention_mask: (max_tokens,)      1 for real tokens, 0 for padding
+        labels:         (num_labels,)
+    """
+    def __init__(
+        self,
+        texts,
+        labels,
+        word2idx: dict,
+        max_tokens: int = MODEL_D_MAX_TOKENS,
+    ):
+        self.texts      = list(texts)
+        self.labels     = labels
+        self.word2idx   = word2idx
+        self.max_tokens = max_tokens
+
+    def __len__(self):
+        return len(self.texts)
+
+    def __getitem__(self, idx):
+        words = self.texts[idx].split()[:self.max_tokens]
+        length = len(words)
+
+        # Map words to indices
+        ids = [self.word2idx.get(w, UNK_IDX) for w in words]
+
+        # Pad to max_tokens
+        pad_len = self.max_tokens - length
+        mask = [1] * length + [0] * pad_len
+        ids  = ids + [PAD_IDX] * pad_len
+
+        return {
+            'input_ids':      torch.tensor(ids,  dtype=torch.long),
+            'attention_mask': torch.tensor(mask, dtype=torch.long),
             'labels':         torch.tensor(self.labels[idx], dtype=torch.float32),
         }
