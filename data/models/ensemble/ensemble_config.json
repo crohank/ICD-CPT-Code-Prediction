@@ -1,16 +1,91 @@
 {
-  "weight_model_a": 0.65,
-  "weight_model_c": 0.35,
-  "threshold": 0.6250000000000002,
-  "val_micro_f1": 0.6293603160572927,
-  "test_results": {
-    "Model": "Ensemble (w=0.65)",
-    "Threshold": 0.625,
-    "Micro-F1": 0.6249,
-    "Macro-F1": 0.5923,
-    "Micro-Prec": 0.5712,
-    "Micro-Rec": 0.6897,
-    "Macro-AUPRC": 0.5921,
-    "Micro-AUROC": 0.9328
-  }
+  "best_ensemble": "Ensemble v1 (A+Cv1, w=0.65)",
+  "ensemble_v1": {
+    "weight_A": 0.65,
+    "weight_C_v1": 0.35,
+    "threshold": 0.6250000000000002
+  },
+  "ensemble_v2": {
+    "weight_A": 0.35000000000000003,
+    "weight_C_v2": 0.65,
+    "threshold": 0.4250000000000001
+  },
+  "ensemble_v3": {
+    "weight_A": 0.30000000000000004,
+    "weight_C_v1": 0.0,
+    "weight_C_v2": 0.7,
+    "threshold": 0.4000000000000001
+  },
+  "test_results": [
+    {
+      "Model": "Model A (TF-IDF + SGD)",
+      "Threshold": 0.525,
+      "Micro-F1": 0.5952,
+      "Macro-F1": 0.5696,
+      "Micro-Prec": 0.4941,
+      "Micro-Rec": 0.7483,
+      "Macro-AUPRC": 0.5741,
+      "Micro-AUROC": 0.925
+    },
+    {
+      "Model": "Model B (ClinicalBERT)",
+      "Threshold": 0.275,
+      "Micro-F1": 0.5242,
+      "Macro-F1": 0.4429,
+      "Micro-Prec": 0.5247,
+      "Micro-Rec": 0.5237,
+      "Macro-AUPRC": 0.4541,
+      "Micro-AUROC": 0.8686
+    },
+    {
+      "Model": "Model C v1 (Chunk+Attn)",
+      "Threshold": 0.625,
+      "Micro-F1": 0.5305,
+      "Macro-F1": 0.5,
+      "Micro-Prec": 0.4191,
+      "Micro-Rec": 0.7225,
+      "Macro-AUPRC": 0.5201,
+      "Micro-AUROC": 0.8938
+    },
+    {
+      "Model": "Model C v2 (Fixed+Focal)",
+      "Threshold": 0.05,
+      "Micro-F1": 0.5508,
+      "Macro-F1": 0.4309,
+      "Micro-Prec": 0.7895,
+      "Micro-Rec": 0.423,
+      "Macro-AUPRC": 0.5567,
+      "Micro-AUROC": 0.9185
+    },
+    {
+      "Model": "Ensemble v1 (A+Cv1, w=0.65)",
+      "Threshold": 0.625,
+      "Micro-F1": 0.6249,
+      "Macro-F1": 0.5923,
+      "Micro-Prec": 0.5712,
+      "Micro-Rec": 0.6897,
+      "Macro-AUPRC": 0.5921,
+      "Micro-AUROC": 0.9328
+    },
+    {
+      "Model": "Ensemble v2 (A+Cv2, w=0.35)",
+      "Threshold": 0.425,
+      "Micro-F1": 0.5271,
+      "Macro-F1": 0.4005,
+      "Micro-Prec": 0.8107,
+      "Micro-Rec": 0.3905,
+      "Macro-AUPRC": 0.6094,
+      "Micro-AUROC": 0.9358
+    },
+    {
+      "Model": "Ensemble v3 (A+Cv1+Cv2)",
+      "Threshold": 0.4,
+      "Micro-F1": 0.5261,
+      "Macro-F1": 0.3992,
+      "Micro-Prec": 0.8103,
+      "Micro-Rec": 0.3895,
+      "Macro-AUPRC": 0.6094,
+      "Micro-AUROC": 0.9359
+    }
+  ]
 }
