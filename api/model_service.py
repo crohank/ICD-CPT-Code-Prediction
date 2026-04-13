@@ -42,6 +42,7 @@ class ModelService:
         self.threshold_c = 0.275
         self.threshold_ens = 0.5
         self.ensemble_weight = 0.5  # w * A + (1-w) * C
+        self.temperature = 1.0      # temperature scaling for Model C
 
     def load(self):
         """Load all model artifacts from disk."""
@@ -70,20 +71,38 @@ class ModelService:
         except FileNotFoundError as e:
             print(f"  Model A not found: {e}")
 
-        # Model C: Chunk + Label Attention
+        # Model C: Chunk + Label Attention (prefer v2, fallback to v1)
+        model_c_v2_dir = MODEL_C_DIR / 'v2'
         try:
             self.model_c = LabelAttentionClassifier(
                 model_name=TRANSFORMER_MODEL,
                 num_labels=self.num_labels,
                 freeze_bert=False,
             ).to(self.device)
-            state = torch.load(MODEL_C_DIR / 'best_model.pt', map_location=self.device)
-            self.model_c.load_state_dict(state)
+
+            # Try v2 first, then v1
+            if (model_c_v2_dir / 'best_model.pt').exists():
+                state = torch.load(model_c_v2_dir / 'best_model.pt', map_location=self.device)
+                self.model_c.load_state_dict(state)
+                with open(model_c_v2_dir / 'test_results.json') as f:
+                    self.threshold_c = json.load(f)['global_threshold']['Threshold']
+                # Load temperature for calibration
+                try:
+                    with open(model_c_v2_dir / 'temperature.json') as f:
+                        self.temperature = json.load(f)['temperature']
+                except FileNotFoundError:
+                    self.temperature = 1.0
+                print(f"  Model C v2 loaded (threshold={self.threshold_c}, temp={self.temperature})")
+            else:
+                state = torch.load(MODEL_C_DIR / 'best_model.pt', map_location=self.device)
+                self.model_c.load_state_dict(state)
+                with open(MODEL_C_DIR / 'test_results.json') as f:
+                    self.threshold_c = json.load(f)['Threshold']
+                self.temperature = 1.0
+                print(f"  Model C v1 loaded (threshold={self.threshold_c})")
+
             self.model_c.eval()
-            with open(MODEL_C_DIR / 'test_results.json') as f:
-                self.threshold_c = json.load(f)['Threshold']
             self.models_loaded.append('model_c')
-            print(f"  Model C loaded (threshold={self.threshold_c})")
         except FileNotFoundError as e:
             print(f"  Model C not found: {e}")
 
@@ -138,7 +157,8 @@ class ModelService:
                 mask = sample['attention_mask'].unsqueeze(0).to(self.device)
                 with torch.no_grad(), torch.amp.autocast(self.device, enabled=self.device == 'cuda'):
                     logits = self.model_c(ids, mask)
-                probs_c = torch.sigmoid(logits).cpu().float().numpy()[0]
+                # Apply temperature scaling for calibrated probabilities
+                probs_c = torch.sigmoid(logits / self.temperature).cpu().float().numpy()[0]
 
         # Ensemble
         if probs_a is not None and probs_c is not None:
