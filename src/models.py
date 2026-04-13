@@ -12,7 +12,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 from transformers import AutoModel, AutoTokenizer
 
-from .config import TRANSFORMER_MODEL, HIDDEN_SIZE, MODEL_C_MAX_CHUNKS
+from .config import (
+    TRANSFORMER_MODEL, HIDDEN_SIZE, MODEL_C_MAX_CHUNKS,
+    MODEL_D_EMBED_DIM, MODEL_D_HIDDEN_DIM, MODEL_D_ATTN_DIM,
+)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -224,6 +227,137 @@ class LabelAttentionClassifier(nn.Module):
         trainable = sum(p.numel() for p in self.parameters() if p.requires_grad)
         print(f"Unfroze last {num_layers} BERT layers. "
               f"Trainable params: {trainable:,}")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  Model D — BiLSTM + Label Attention (LAAT, Vu et al. IJCAI 2020)
+# ═══════════════════════════════════════════════════════════════════════
+
+class BiLSTMLAAT(nn.Module):
+    """
+    BiLSTM encoder + per-label attention from:
+      "A Label Attention Model for ICD Coding from Clinical Text"
+      (Vu, Nguyen & Nguyen, IJCAI 2020)
+
+    Architecture:
+      1. Word embedding layer
+      2. BiLSTM encoder  → hidden states H ∈ R^{n × 2u}
+      3. Label attention  → Z = tanh(W·H^T), A = softmax(U·Z)
+      4. Per-label FFN    → logits = FFN_j(v_j) for each label j
+
+    Unlike Model C (BERT-based), this processes full documents natively
+    (up to 4000 tokens) without chunking.
+
+    Args:
+        vocab_size:   word vocabulary size (including <PAD> and <UNK>)
+        num_labels:   number of ICD-10 codes to predict
+        embed_dim:    word embedding dimension
+        hidden_dim:   BiLSTM hidden size per direction (output = 2 * hidden_dim)
+        num_layers:   number of stacked BiLSTM layers
+        attn_dim:     label attention projection dimension (d_a in paper)
+        dropout:      dropout rate
+        pretrained_embeddings: optional (vocab_size, embed_dim) tensor for init
+    """
+    def __init__(
+        self,
+        vocab_size: int,
+        num_labels: int = 50,
+        embed_dim: int = MODEL_D_EMBED_DIM,
+        hidden_dim: int = MODEL_D_HIDDEN_DIM,
+        num_layers: int = 1,
+        attn_dim: int = MODEL_D_ATTN_DIM,
+        dropout: float = 0.3,
+        pretrained_embeddings: torch.Tensor = None,
+    ):
+        super().__init__()
+        self.num_labels = num_labels
+        self.hidden_dim = hidden_dim
+
+        # 1. Embedding
+        self.embedding = nn.Embedding(vocab_size, embed_dim, padding_idx=0)
+        if pretrained_embeddings is not None:
+            self.embedding.weight.data.copy_(pretrained_embeddings)
+
+        # 2. BiLSTM encoder
+        self.lstm = nn.LSTM(
+            input_size=embed_dim,
+            hidden_size=hidden_dim,
+            num_layers=num_layers,
+            batch_first=True,
+            bidirectional=True,
+            dropout=dropout if num_layers > 1 else 0.0,
+        )
+
+        lstm_out_dim = 2 * hidden_dim  # bidirectional
+
+        # 3. Label attention (paper equations 4-6)
+        #    W ∈ R^{d_a × 2u}  — projects hidden states to attention space
+        #    U ∈ R^{L × d_a}   — per-label attention queries
+        self.W_attn = nn.Linear(lstm_out_dim, attn_dim, bias=False)
+        self.U_attn = nn.Linear(attn_dim, num_labels, bias=False)
+
+        # 4. Per-label classifier (paper: single-layer FFNN per label)
+        self.dropout = nn.Dropout(dropout)
+        self.classifier = nn.Linear(lstm_out_dim, num_labels)
+
+    def forward(self, input_ids, attention_mask=None):
+        """
+        Args:
+            input_ids:      (batch, seq_len) word indices
+            attention_mask: (batch, seq_len) 1=real token, 0=padding
+
+        Returns:
+            logits: (batch, num_labels)
+        """
+        batch_size, seq_len = input_ids.shape
+
+        # Compute lengths from attention_mask for pack_padded_sequence
+        if attention_mask is not None:
+            lengths = attention_mask.sum(dim=1).cpu()  # (batch,)
+        else:
+            lengths = torch.full((batch_size,), seq_len)
+
+        # Clamp lengths to at least 1 to avoid empty sequences
+        lengths = lengths.clamp(min=1)
+
+        # 1. Embed
+        embeds = self.embedding(input_ids)  # (B, T, embed_dim)
+        embeds = self.dropout(embeds)
+
+        # 2. BiLSTM with packed sequences for efficiency
+        packed = nn.utils.rnn.pack_padded_sequence(
+            embeds, lengths, batch_first=True, enforce_sorted=False,
+        )
+        packed_out, _ = self.lstm(packed)
+        H, _ = nn.utils.rnn.pad_packed_sequence(
+            packed_out, batch_first=True, total_length=seq_len,
+        )  # H: (B, T, 2*hidden_dim)
+
+        # 3. Label attention (equations 4-6)
+        # Z = tanh(H @ W^T)  → (B, T, d_a)
+        Z = torch.tanh(self.W_attn(H))
+
+        # A = softmax(Z @ U^T, dim=1)  → (B, T, L) → transpose to (B, L, T)
+        A = self.U_attn(Z)  # (B, T, L)
+        A = A.permute(0, 2, 1)  # (B, L, T)
+
+        # Mask padding positions before softmax
+        if attention_mask is not None:
+            mask_expanded = attention_mask.unsqueeze(1).float()  # (B, 1, T)
+            A = A.masked_fill(mask_expanded == 0, float('-inf'))
+
+        A = torch.softmax(A, dim=-1)  # (B, L, T)
+        A = A.nan_to_num(0.0)  # safety for all-masked rows
+
+        # V = A @ H  → (B, L, 2*hidden_dim)
+        V = torch.bmm(A, H)
+
+        # 4. Per-label classification
+        V = self.dropout(V)
+        logits = (V * self.classifier.weight.unsqueeze(0)).sum(dim=-1)
+        logits = logits + self.classifier.bias.unsqueeze(0)
+
+        return logits
 
 
 # ═══════════════════════════════════════════════════════════════════════

@@ -1,0 +1,10 @@
+{
+  "Model": "Model D (BiLSTM-LAAT)",
+  "Threshold": 0.3,
+  "Micro-F1": 0.7176,
+  "Macro-F1": 0.6635,
+  "Micro-Prec": 0.7171,
+  "Micro-Rec": 0.7181,
+  "Macro-AUPRC": 0.6805,
+  "Micro-AUROC": 0.9523
+}

@@ -1,5 +1,5 @@
 {
-  "best_ensemble": "Ensemble v1 (A+Cv1, w=0.65)",
+  "best_ensemble": "Ensemble v4 (A+D, w=0.15)",
   "ensemble_v1": {
     "weight_A": 0.65,
     "weight_C_v1": 0.35,
@@ -15,6 +15,17 @@
     "weight_C_v1": 0.0,
     "weight_C_v2": 0.7,
     "threshold": 0.4000000000000001
+  },
+  "ensemble_v4": {
+    "weight_A": 0.15000000000000002,
+    "weight_D": 0.85,
+    "threshold": 0.3500000000000001
+  },
+  "ensemble_v5": {
+    "weight_A": 0.1,
+    "weight_C_v2": 0.30000000000000004,
+    "weight_D": 0.6,
+    "threshold": 0.3500000000000001
   },
   "test_results": [
     {
@@ -58,6 +69,16 @@
       "Micro-AUROC": 0.9185
     },
     {
+      "Model": "Model D (BiLSTM-LAAT)",
+      "Threshold": 0.3,
+      "Micro-F1": 0.7176,
+      "Macro-F1": 0.6635,
+      "Micro-Prec": 0.7171,
+      "Micro-Rec": 0.7181,
+      "Macro-AUPRC": 0.6805,
+      "Micro-AUROC": 0.9523
+    },
+    {
       "Model": "Ensemble v1 (A+Cv1, w=0.65)",
       "Threshold": 0.625,
       "Micro-F1": 0.6249,
@@ -86,6 +107,26 @@
       "Micro-Rec": 0.3895,
       "Macro-AUPRC": 0.6094,
       "Micro-AUROC": 0.9359
+    },
+    {
+      "Model": "Ensemble v4 (A+D, w=0.15)",
+      "Threshold": 0.35,
+      "Micro-F1": 0.7198,
+      "Macro-F1": 0.6682,
+      "Micro-Prec": 0.7189,
+      "Micro-Rec": 0.7207,
+      "Macro-AUPRC": 0.6895,
+      "Micro-AUROC": 0.9548
+    },
+    {
+      "Model": "Ensemble v5 (A+Cv2+D)",
+      "Threshold": 0.35,
+      "Micro-F1": 0.6943,
+      "Macro-F1": 0.6146,
+      "Micro-Prec": 0.7952,
+      "Micro-Rec": 0.6162,
+      "Macro-AUPRC": 0.6847,
+      "Micro-AUROC": 0.9549
     }
   ]
 }
