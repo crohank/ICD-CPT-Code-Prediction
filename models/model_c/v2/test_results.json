@@ -1,0 +1,22 @@
+{
+  "global_threshold": {
+    "Model": "Model C v2 (global threshold)",
+    "Threshold": 0.05,
+    "Micro-F1": 0.5508,
+    "Macro-F1": 0.4309,
+    "Micro-Prec": 0.7895,
+    "Micro-Rec": 0.423,
+    "Macro-AUPRC": 0.5567,
+    "Micro-AUROC": 0.9185
+  },
+  "per_label_threshold": {
+    "Model": "Model C v2 (per-label threshold)",
+    "Threshold": "per-label",
+    "Micro-F1": 0.5508,
+    "Macro-F1": 0.4309,
+    "Micro-Prec": 0.7896,
+    "Micro-Rec": 0.4229,
+    "Macro-AUPRC": 0.5567,
+    "Micro-AUROC": 0.9185
+  }
+}

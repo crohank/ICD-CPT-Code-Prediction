@@ -10,12 +10,32 @@ import numpy as np
 import json
 import pickle
 import re
+import sys
 from pathlib import Path
+
+import torch
 
 # ── Paths ─────────────────────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
 DATA_DIR     = PROJECT_ROOT / "data"
 MODELS_DIR   = DATA_DIR / "models"
+ALT_MODELS   = PROJECT_ROOT / "models"
+
+
+def _resolve(primary: Path) -> Path:
+    """Return primary if it exists, else try same relative path under models/."""
+    if primary.exists():
+        return primary
+    try:
+        rel = primary.relative_to(MODELS_DIR)
+        alt = ALT_MODELS / rel
+        if alt.exists():
+            return alt
+    except ValueError:
+        pass
+    return primary
+
 
 MODEL_DIRS = {
     "Model A (TF-IDF + SGD)":     MODELS_DIR / "model_a",
@@ -142,7 +162,7 @@ def try_load_model_a(data_path):
             vec = pickle.load(f)
         with open(dp / "mlb.pkl", "rb") as f:
             mlb = pickle.load(f)
-        clf_path = MODELS_DIR / "model_a" / "clf_sgd.pkl"
+        clf_path = _resolve(MODELS_DIR / "model_a" / "clf_sgd.pkl")
         if not clf_path.exists():
             return vec, None, mlb
         with open(clf_path, "rb") as f:
@@ -150,6 +170,192 @@ def try_load_model_a(data_path):
         return vec, clf, mlb
     except Exception:
         return None, None, None
+
+
+@st.cache_resource
+def try_load_model_b(data_path):
+    """Load Model B (ClinicalBERT). Returns (model, tokenizer, mlb, error_msg)."""
+    try:
+        from transformers import AutoTokenizer
+        from src.models import ICDClassifier
+        from src.config import TRANSFORMER_MODEL
+
+        dp = Path(data_path)
+        with open(dp / "mlb.pkl", "rb") as f:
+            mlb = pickle.load(f)
+
+        num_labels = len(mlb.classes_)
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        wt_path = _resolve(MODELS_DIR / "model_b" / "best_model.pt")
+        if not wt_path.exists():
+            return None, None, None, f"Weight file not found: `{wt_path}`"
+
+        tokenizer = AutoTokenizer.from_pretrained(TRANSFORMER_MODEL)
+        model = ICDClassifier(TRANSFORMER_MODEL, num_labels=num_labels)
+        model.load_state_dict(torch.load(wt_path, map_location=device, weights_only=True))
+        model.to(device).eval()
+
+        return model, tokenizer, mlb, None
+    except Exception as e:
+        return None, None, None, str(e)
+
+
+@st.cache_resource
+def try_load_model_c(data_path, version="v2"):
+    """Load Model C (Chunk+Attn). Returns (model, tokenizer, mlb, temperature, error_msg)."""
+    try:
+        from transformers import AutoTokenizer
+        from src.models import LabelAttentionClassifier
+        from src.config import TRANSFORMER_MODEL, MODEL_C_MAX_CHUNKS
+
+        dp = Path(data_path)
+        with open(dp / "mlb.pkl", "rb") as f:
+            mlb = pickle.load(f)
+
+        num_labels = len(mlb.classes_)
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        if version == "v2":
+            wt_path = _resolve(MODELS_DIR / "model_c" / "v2" / "best_model.pt")
+            temp_path = _resolve(MODELS_DIR / "model_c" / "v2" / "temperature.json")
+        else:
+            wt_path = _resolve(MODELS_DIR / "model_c" / "best_model.pt")
+            temp_path = None
+
+        if not wt_path.exists():
+            return None, None, None, 1.0, f"Weight file not found: `{wt_path}`"
+
+        tokenizer = AutoTokenizer.from_pretrained(TRANSFORMER_MODEL)
+        model = LabelAttentionClassifier(
+            TRANSFORMER_MODEL, num_labels=num_labels,
+            max_chunks=MODEL_C_MAX_CHUNKS, freeze_bert=False,
+        )
+        model.load_state_dict(torch.load(wt_path, map_location=device, weights_only=True))
+        model.to(device).eval()
+
+        temperature = 1.0
+        if temp_path and temp_path.exists():
+            with open(temp_path) as f:
+                temperature = json.load(f)["temperature"]
+
+        return model, tokenizer, mlb, temperature, None
+    except Exception as e:
+        return None, None, None, 1.0, str(e)
+
+
+@st.cache_resource
+def try_load_model_d(data_path):
+    """Load Model D (BiLSTM-LAAT). Returns (model, word2idx, mlb, error_msg)."""
+    try:
+        from src.models import BiLSTMLAAT
+
+        dp = Path(data_path)
+        with open(dp / "mlb.pkl", "rb") as f:
+            mlb = pickle.load(f)
+        with open(dp / "word_vocab.pkl", "rb") as f:
+            word2idx = pickle.load(f)
+
+        num_labels = len(mlb.classes_)
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        wt_path = _resolve(MODELS_DIR / "model_d" / "best_model.pt")
+        if not wt_path.exists():
+            return None, None, None, f"Weight file not found: `{wt_path}`"
+
+        model = BiLSTMLAAT(vocab_size=len(word2idx), num_labels=num_labels)
+        model.load_state_dict(torch.load(wt_path, map_location=device, weights_only=True))
+        model.to(device).eval()
+
+        return model, word2idx, mlb, None
+    except Exception as e:
+        return None, None, None, str(e)
+
+
+def predict_b(text, model, tokenizer):
+    """Run Model B inference on a single text."""
+    cleaned = clean_text(text)
+    device = next(model.parameters()).device
+    enc = tokenizer(
+        cleaned, max_length=512, padding="max_length",
+        truncation=True, return_tensors="pt",
+    )
+    ids = enc["input_ids"].to(device)
+    mask = enc["attention_mask"].to(device)
+    with torch.no_grad():
+        logits = model(ids, mask)
+        probs = torch.sigmoid(logits).cpu().numpy()[0]
+    return probs
+
+
+def predict_c(text, model, tokenizer, temperature=1.0):
+    """Run Model C inference on a single text (chunked)."""
+    from src.config import MODEL_C_MAX_CHUNKS, MAX_SEQ_LEN, MODEL_C_CHUNK_STRIDE
+
+    cleaned = clean_text(text)
+    device = next(model.parameters()).device
+
+    full_enc = tokenizer(cleaned, add_special_tokens=False, return_attention_mask=False)
+    token_ids = full_enc["input_ids"]
+
+    cls_id = tokenizer.cls_token_id
+    sep_id = tokenizer.sep_token_id
+    pad_id = tokenizer.pad_token_id
+    content_len = MAX_SEQ_LEN - 2
+    stride = min(MODEL_C_CHUNK_STRIDE, content_len)
+
+    chunks_ids, chunks_mask = [], []
+    start = 0
+    while start < len(token_ids) and len(chunks_ids) < MODEL_C_MAX_CHUNKS:
+        end = min(start + content_len, len(token_ids))
+        chunk = token_ids[start:end]
+        ids = [cls_id] + chunk + [sep_id]
+        mask = [1] * len(ids)
+        pad_len = MAX_SEQ_LEN - len(ids)
+        ids += [pad_id] * pad_len
+        mask += [0] * pad_len
+        chunks_ids.append(ids)
+        chunks_mask.append(mask)
+        if end >= len(token_ids):
+            break
+        start += stride
+
+    chunk_count = len(chunks_ids)
+    while len(chunks_ids) < MODEL_C_MAX_CHUNKS:
+        chunks_ids.append([pad_id] * MAX_SEQ_LEN)
+        chunks_mask.append([0] * MAX_SEQ_LEN)
+
+    ids_t = torch.tensor([chunks_ids], dtype=torch.long).to(device)
+    mask_t = torch.tensor([chunks_mask], dtype=torch.long).to(device)
+    cc_t = torch.tensor([chunk_count], dtype=torch.long).to(device)
+
+    with torch.no_grad():
+        logits = model(ids_t, mask_t, chunk_counts=cc_t)
+        probs = torch.sigmoid(logits / temperature).cpu().numpy()[0]
+    return probs
+
+
+def predict_d(text, model, word2idx):
+    """Run Model D inference on a single text (word-level)."""
+    from src.config import MODEL_D_MAX_TOKENS
+
+    cleaned = clean_text(text)
+    words = cleaned.split()[:MODEL_D_MAX_TOKENS]
+    ids = [word2idx.get(w, 1) for w in words]
+    mask = [1] * len(ids)
+
+    pad_len = MODEL_D_MAX_TOKENS - len(ids)
+    ids += [0] * pad_len
+    mask += [0] * pad_len
+
+    device = next(model.parameters()).device
+    ids_t = torch.tensor([ids], dtype=torch.long).to(device)
+    mask_t = torch.tensor([mask], dtype=torch.long).to(device)
+
+    with torch.no_grad():
+        logits = model(ids_t, mask_t)
+        probs = torch.sigmoid(logits).cpu().numpy()[0]
+    return probs
 
 
 SAMPLE_NOTES = {
@@ -209,7 +415,7 @@ def render_predictions(probs, vocab, top_n, threshold):
         prob = float(probs[idx])
         desc = ICD10_DESC.get(code, f"ICD-10 {code}")
         rows.append({
-            "": "✅" if prob >= threshold else "",
+            "Predicted": "Yes" if prob >= threshold else "No",
             "ICD-10 Code": code,
             "Description": desc,
             "Probability": prob,
@@ -308,38 +514,130 @@ if page == "Predict":
             st.divider()
             render_predictions(probs, vocab, top_n, threshold)
 
-        # ── Models B, C, D, Ensemble ─────────────────────────────
-        else:
-            weight_info = {
-                "Model B (ClinicalBERT)": (
-                    "data/models/model_b/best_model.pt",
-                    "04_model_b_transformer_local.ipynb",
-                ),
-                "Model C v1 (Chunk+Attn)": (
-                    "data/models/model_c/best_model.pt",
-                    "06_model_c_training.ipynb",
-                ),
-                "Model C v2 (Fixed+Focal)": (
-                    "data/models/model_c/v2/best_model.pt",
-                    "06_model_c_training_v2.ipynb",
-                ),
-                "Model D (BiLSTM-LAAT)": (
-                    "data/models/model_d/best_model.pt",
-                    "08_model_d_bilstm_local.ipynb",
-                ),
-                "Ensemble v4 (A+D, best)": (
-                    "data/models/model_a/clf_sgd.pkl + data/models/model_d/best_model.pt",
-                    "07_ensemble_evaluation.ipynb",
-                ),
-            }
-            weight_file, notebook = weight_info[selected_model]
-            st.warning(
-                f"**{selected_model}** requires trained weight files to run live prediction.\n\n"
-                f"**Needed:** `{weight_file}`\n\n"
-                f"**How:** Re-run notebook `{notebook}` and ensure the model weights are saved to disk.\n\n"
-                f"In the meantime, check the **Overview** page for this model's test set results, "
-                f"or the **Model Details** page for per-label performance."
-            )
+        # ── Model B (ClinicalBERT) ───────────────────────────────
+        elif selected_model == "Model B (ClinicalBERT)":
+            with st.spinner("Loading Model B (ClinicalBERT)..."):
+                model_b, tokenizer_b, mlb_b, err_b = try_load_model_b(data_path)
+            if err_b:
+                st.error(
+                    f"Could not load Model B.\n\n**Error:** {err_b}\n\n"
+                    f"Make sure `{data_path}/mlb.pkl` exists and "
+                    f"`data/models/model_b/best_model.pt` is present.\n\n"
+                    f"Created by notebook `04_model_b_transformer_local.ipynb`."
+                )
+                st.stop()
+
+            vocab = list(mlb_b.classes_)
+            with st.spinner("Running inference..."):
+                probs = predict_b(text_input, model_b, tokenizer_b)
+
+            st.divider()
+            render_predictions(probs, vocab, top_n, threshold)
+
+        # ── Model C v1 (Chunk+Attn) ─────────────────────────────
+        elif selected_model == "Model C v1 (Chunk+Attn)":
+            with st.spinner("Loading Model C v1 (Chunk+Attn)..."):
+                model_c, tok_c, mlb_c, temp_c, err_c = try_load_model_c(data_path, version="v1")
+            if err_c:
+                st.error(
+                    f"Could not load Model C v1.\n\n**Error:** {err_c}\n\n"
+                    f"Make sure `{data_path}/mlb.pkl` exists and "
+                    f"`data/models/model_c/best_model.pt` is present.\n\n"
+                    f"Created by notebook `06_model_c_training.ipynb`."
+                )
+                st.stop()
+
+            vocab = list(mlb_c.classes_)
+            with st.spinner("Running inference (chunked BERT)..."):
+                probs = predict_c(text_input, model_c, tok_c, temperature=temp_c)
+
+            st.divider()
+            render_predictions(probs, vocab, top_n, threshold)
+
+        # ── Model C v2 (Fixed+Focal) ────────────────────────────
+        elif selected_model == "Model C v2 (Fixed+Focal)":
+            with st.spinner("Loading Model C v2 (Fixed+Focal)..."):
+                model_c2, tok_c2, mlb_c2, temp_c2, err_c2 = try_load_model_c(data_path, version="v2")
+            if err_c2:
+                st.error(
+                    f"Could not load Model C v2.\n\n**Error:** {err_c2}\n\n"
+                    f"Make sure `{data_path}/mlb.pkl` exists and "
+                    f"`data/models/model_c/v2/best_model.pt` is present.\n\n"
+                    f"Created by notebook `06_model_c_training_v2.ipynb`."
+                )
+                st.stop()
+
+            vocab = list(mlb_c2.classes_)
+            with st.spinner("Running inference (chunked BERT v2)..."):
+                probs = predict_c(text_input, model_c2, tok_c2, temperature=temp_c2)
+
+            st.divider()
+            render_predictions(probs, vocab, top_n, threshold)
+
+        # ── Model D (BiLSTM-LAAT) ───────────────────────────────
+        elif selected_model == "Model D (BiLSTM-LAAT)":
+            with st.spinner("Loading Model D (BiLSTM-LAAT)..."):
+                model_d, word2idx, mlb_d, err_d = try_load_model_d(data_path)
+            if err_d:
+                st.error(
+                    f"Could not load Model D.\n\n**Error:** {err_d}\n\n"
+                    f"Make sure these files exist:\n"
+                    f"- `{data_path}/mlb.pkl`\n"
+                    f"- `{data_path}/word_vocab.pkl`\n"
+                    f"- `data/models/model_d/best_model.pt`\n\n"
+                    f"Created by notebook `08_model_d_bilstm_local.ipynb`."
+                )
+                st.stop()
+
+            vocab = list(mlb_d.classes_)
+            with st.spinner("Running inference (BiLSTM)..."):
+                probs = predict_d(text_input, model_d, word2idx)
+
+            st.divider()
+            render_predictions(probs, vocab, top_n, threshold)
+
+        # ── Ensemble v4 (A+D, best) ─────────────────────────────
+        elif selected_model == "Ensemble v4 (A+D, best)":
+            ens_cfg = load_ensemble_config()
+            if ens_cfg is None or "ensemble_v4" not in ens_cfg:
+                st.error("Ensemble config not found at `data/models/ensemble/ensemble_config.json`.")
+                st.stop()
+
+            v4 = ens_cfg["ensemble_v4"]
+            w_a, w_d = v4["weight_A"], v4["weight_D"]
+
+            # Load Model A
+            vec_a, clf_a, mlb_a = try_load_model_a(data_path)
+            if vec_a is None or clf_a is None:
+                st.error(
+                    f"Ensemble requires Model A.\n\n"
+                    f"Make sure `{data_path}/tfidf_vectorizer.pkl`, `{data_path}/mlb.pkl`, "
+                    f"and `data/models/model_a/clf_sgd.pkl` exist."
+                )
+                st.stop()
+
+            # Load Model D
+            with st.spinner("Loading Ensemble v4 (Model A + Model D)..."):
+                model_d, word2idx, mlb_d, err_d = try_load_model_d(data_path)
+            if err_d:
+                st.error(
+                    f"Ensemble requires Model D.\n\n**Error:** {err_d}\n\n"
+                    f"Make sure `{data_path}/mlb.pkl`, `{data_path}/word_vocab.pkl`, "
+                    f"and `data/models/model_d/best_model.pt` exist."
+                )
+                st.stop()
+
+            vocab = list(mlb_a.classes_)
+            with st.spinner("Running ensemble inference (A + D)..."):
+                cleaned = clean_text(text_input)
+                x_a = vec_a.transform([cleaned])
+                probs_a = clf_a.predict_proba(x_a)[0]
+                probs_d_arr = predict_d(text_input, model_d, word2idx)
+                probs = w_a * probs_a + w_d * probs_d_arr
+
+            st.divider()
+            st.info(f"Ensemble v4: **{w_a:.0%}** Model A + **{w_d:.0%}** Model D")
+            render_predictions(probs, vocab, top_n, threshold)
 
 # ══════════════════════════════════════════════════════════════════════
 #  PAGE: Overview

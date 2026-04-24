@@ -1,0 +1,144 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\citation{mullenbach2018explainable}
+\providecommand \oddpage@label [2]{}
+\citation{perotte2014diagnosis}
+\@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{2}{section.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {1.1}Motivation}{2}{subsection.1.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {1.2}Problem Definition}{2}{subsection.1.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {1.3}Challenges}{2}{subsection.1.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {1.4}Contributions}{2}{subsection.1.4}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces Overall system architecture. Three model families process discharge summaries independently; their sigmoid probabilities are combined via weighted ensemble, and a global threshold produces final ICD-10 predictions.}}{2}{figure.caption.1}\protected@file@percent }
+\providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
+\newlabel{fig:system}{{1}{2}{Overall system architecture. Three model families process discharge summaries independently; their sigmoid probabilities are combined via weighted ensemble, and a global threshold produces final ICD-10 predictions}{figure.caption.1}{}}
+\citation{mullenbach2018explainable}
+\citation{huang2022plmicd}
+\citation{vu2020label}
+\citation{alsentzer2019publicly}
+\citation{lin2017focal}
+\citation{johnson2023mimiciv}
+\@writefile{toc}{\contentsline {section}{\numberline {2}Prior Work}{3}{section.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {3}Dataset}{3}{section.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Data Source}{3}{subsection.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2}Label Statistics and Data Split}{3}{subsection.3.2}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Dataset statistics overview.}}{3}{table.caption.2}\protected@file@percent }
+\newlabel{tab:data_stats}{{1}{3}{Dataset statistics overview}{table.caption.2}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces Train / validation / test split sizes.}}{4}{table.caption.3}\protected@file@percent }
+\newlabel{tab:split}{{2}{4}{Train / validation / test split sizes}{table.caption.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.3}Preprocessing}{4}{subsection.3.3}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Data preprocessing and feature engineering pipelines.}}{4}{figure.caption.4}\protected@file@percent }
+\newlabel{fig:preprocessing}{{2}{4}{Data preprocessing and feature engineering pipelines}{figure.caption.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.4}Exploratory Data Analysis}{4}{subsection.3.4}\protected@file@percent }
+\newlabel{fig:note_length}{{3a}{4}{Distribution of discharge note lengths (words)}{figure.caption.5}{}}
+\newlabel{sub@fig:note_length}{{a}{4}{Distribution of discharge note lengths (words)}{figure.caption.5}{}}
+\newlabel{fig:label_card}{{3b}{4}{Distribution of label cardinality per admission}{figure.caption.5}{}}
+\newlabel{sub@fig:label_card}{{b}{4}{Distribution of label cardinality per admission}{figure.caption.5}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Exploratory data analysis of MIMIC-IV discharge notes.}}{4}{figure.caption.5}\protected@file@percent }
+\citation{alsentzer2019publicly}
+\citation{huang2022plmicd}
+\newlabel{fig:code_freq}{{4a}{5}{Top-200 ICD-10 code frequencies (long-tail distribution)}{figure.caption.6}{}}
+\newlabel{sub@fig:code_freq}{{a}{5}{Top-200 ICD-10 code frequencies (long-tail distribution)}{figure.caption.6}{}}
+\newlabel{fig:split_counts}{{4b}{5}{Number of admissions and percentage per data split}{figure.caption.6}{}}
+\newlabel{sub@fig:split_counts}{{b}{5}{Number of admissions and percentage per data split}{figure.caption.6}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Label distribution and data split visualization.}}{5}{figure.caption.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {4}Methods}{5}{section.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}TF-IDF + SGD (Model A: Baseline)}{5}{subsection.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2}ClinicalBERT with Truncation (Model B: Baseline)}{5}{subsection.4.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3}Approach 1: Chunk-BERT + Label Attention (Model C)}{5}{subsection.4.3}\protected@file@percent }
+\newlabel{sec:chunk_bert}{{4.3}{5}{Approach 1: Chunk-BERT + Label Attention (Model C)}{subsection.4.3}{}}
+\citation{vu2020label}
+\citation{vu2020label}
+\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces Chunk-BERT architecture (Model C). Discharge notes are split into $K$ overlapping 512-token chunks, each encoded by Bio\_ClinicalBERT. Token embeddings are concatenated and processed through per-label attention for 50 ICD-10 logits.}}{6}{figure.caption.7}\protected@file@percent }
+\newlabel{fig:chunk_bert_arch}{{5}{6}{Chunk-BERT architecture (Model C). Discharge notes are split into $K$ overlapping 512-token chunks, each encoded by Bio\_ClinicalBERT. Token embeddings are concatenated and processed through per-label attention for 50 ICD-10 logits}{figure.caption.7}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces Chunk-BERT v1 training progression.}}{6}{table.caption.8}\protected@file@percent }
+\newlabel{tab:train_c}{{3}{6}{Chunk-BERT v1 training progression}{table.caption.8}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.4}Approach 2: BiLSTM-LAAT (Model D)}{6}{subsection.4.4}\protected@file@percent }
+\newlabel{sec:bilstm_laat}{{4.4}{6}{Approach 2: BiLSTM-LAAT (Model D)}{subsection.4.4}{}}
+\citation{vu2020label}
+\citation{vu2020label}
+\@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces Architecture of the BiLSTM-LAAT model (Model D), following \citet  {vu2020label}. Input word tokens $w_1, \ldots  , w_n$ (up to 4,000) are embedded ($d_e\!=\!200$) and encoded by a bidirectional LSTM ($2u\!=\!512$). The label attention mechanism computes $L\!=\!50$ label-specific vectors via learned attention weights, each classified independently through a per-label FFNN with sigmoid activation.}}{7}{figure.caption.9}\protected@file@percent }
+\newlabel{fig:bilstm_arch}{{6}{7}{Architecture of the BiLSTM-LAAT model (Model D), following \citet {vu2020label}. Input word tokens $w_1, \ldots , w_n$ (up to 4,000) are embedded ($d_e\!=\!200$) and encoded by a bidirectional LSTM ($2u\!=\!512$). The label attention mechanism computes $L\!=\!50$ label-specific vectors via learned attention weights, each classified independently through a per-label FFNN with sigmoid activation}{figure.caption.9}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces BiLSTM-LAAT (Model D) training progression.}}{7}{table.caption.10}\protected@file@percent }
+\newlabel{tab:train_d}{{4}{7}{BiLSTM-LAAT (Model D) training progression}{table.caption.10}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.5}Ensemble Methods}{8}{subsection.4.5}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces Ensemble configurations with validation-tuned weights and thresholds.}}{8}{table.caption.11}\protected@file@percent }
+\newlabel{tab:ensemble_weights}{{5}{8}{Ensemble configurations with validation-tuned weights and thresholds}{table.caption.11}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.6}Hyperparameter Summary}{8}{subsection.4.6}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {6}{\ignorespaces Hyperparameter comparison across all models.}}{8}{table.caption.12}\protected@file@percent }
+\newlabel{tab:hyperparams}{{6}{8}{Hyperparameter comparison across all models}{table.caption.12}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {5}Results}{8}{section.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.1}Main Results}{8}{subsection.5.1}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {7}{\ignorespaces Metric comparison across all models and ensemble variants.}}{9}{figure.caption.13}\protected@file@percent }
+\newlabel{fig:comparison_bars}{{7}{9}{Metric comparison across all models and ensemble variants}{figure.caption.13}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {7}{\ignorespaces Test-set results for all models and ensembles (Top-50, $n\!=\!18{,}852$). Best in \textbf  {bold}.}}{9}{table.caption.14}\protected@file@percent }
+\newlabel{tab:main_results}{{7}{9}{Test-set results for all models and ensembles (Top-50, $n\!=\!18{,}852$). Best in \textbf {bold}}{table.caption.14}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2}Training Curves}{9}{subsection.5.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {8}{\ignorespaces Detailed training curves. BiLSTM-LAAT achieves faster and more stable convergence, while Chunk-BERT shows a two-phase pattern with an inflection at epoch 6 when BERT layers are unfrozen.}}{10}{figure.caption.15}\protected@file@percent }
+\newlabel{fig:training_curves_detail}{{8}{10}{Detailed training curves. BiLSTM-LAAT achieves faster and more stable convergence, while Chunk-BERT shows a two-phase pattern with an inflection at epoch 6 when BERT layers are unfrozen}{figure.caption.15}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.3}Per-Label Confusion Matrices}{10}{subsection.5.3}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {9}{\ignorespaces Per-label confusion matrix (top-10 codes) for TF-IDF + SGD (Model A).}}{11}{figure.caption.16}\protected@file@percent }
+\newlabel{fig:confusion_baseline}{{9}{11}{Per-label confusion matrix (top-10 codes) for TF-IDF + SGD (Model A)}{figure.caption.16}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {10}{\ignorespaces Per-label confusion matrix for ClinicalBERT (Model B). Struggles with rare codes due to truncation.}}{11}{figure.caption.17}\protected@file@percent }
+\newlabel{fig:confusion_b}{{10}{11}{Per-label confusion matrix for ClinicalBERT (Model B). Struggles with rare codes due to truncation}{figure.caption.17}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {11}{\ignorespaces Per-label confusion matrix for Chunk-BERT v1 (Model C).}}{12}{figure.caption.18}\protected@file@percent }
+\newlabel{fig:confusion_approaches}{{11}{12}{Per-label confusion matrix for Chunk-BERT v1 (Model C)}{figure.caption.18}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {12}{\ignorespaces Per-label confusion matrix for BiLSTM-LAAT (Model D). Most balanced TP/FN ratios across all frequency tiers.}}{12}{figure.caption.19}\protected@file@percent }
+\newlabel{fig:confusion_d}{{12}{12}{Per-label confusion matrix for BiLSTM-LAAT (Model D). Most balanced TP/FN ratios across all frequency tiers}{figure.caption.19}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {13}{\ignorespaces Per-label confusion matrix for Chunk-BERT v2 (Focal Loss).}}{13}{figure.caption.20}\protected@file@percent }
+\newlabel{fig:confusion_v2_ens}{{13}{13}{Per-label confusion matrix for Chunk-BERT v2 (Focal Loss)}{figure.caption.20}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {14}{\ignorespaces Per-label confusion matrix for Ensemble v4 (TF-IDF + BiLSTM). Closely matches BiLSTM-LAAT performance.}}{13}{figure.caption.21}\protected@file@percent }
+\newlabel{fig:confusion_ens}{{14}{13}{Per-label confusion matrix for Ensemble v4 (TF-IDF + BiLSTM). Closely matches BiLSTM-LAAT performance}{figure.caption.21}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.4}Full 50-Label Inter-Code Confusion Heatmaps}{13}{subsection.5.4}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {15}{\ignorespaces Full $50\times 50$ inter-label confusion heatmap for TF-IDF + SGD (Model A).}}{14}{figure.caption.22}\protected@file@percent }
+\newlabel{fig:label_confusion_base}{{15}{14}{Full $50\times 50$ inter-label confusion heatmap for TF-IDF + SGD (Model A)}{figure.caption.22}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {16}{\ignorespaces $50\times 50$ inter-label confusion heatmap for ClinicalBERT (Model B).}}{14}{figure.caption.23}\protected@file@percent }
+\newlabel{fig:label_confusion_b}{{16}{14}{$50\times 50$ inter-label confusion heatmap for ClinicalBERT (Model B)}{figure.caption.23}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {17}{\ignorespaces $50\times 50$ inter-label confusion heatmap for Chunk-BERT v1 (Model C).}}{15}{figure.caption.24}\protected@file@percent }
+\newlabel{fig:label_confusion_50}{{17}{15}{$50\times 50$ inter-label confusion heatmap for Chunk-BERT v1 (Model C)}{figure.caption.24}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {18}{\ignorespaces $50\times 50$ inter-label confusion heatmap for BiLSTM-LAAT (Model D). Notably less off-diagonal confusion.}}{15}{figure.caption.25}\protected@file@percent }
+\newlabel{fig:label_confusion_d}{{18}{15}{$50\times 50$ inter-label confusion heatmap for BiLSTM-LAAT (Model D). Notably less off-diagonal confusion}{figure.caption.25}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {19}{\ignorespaces $50\times 50$ inter-label confusion heatmap for Chunk-BERT v2 (Focal Loss).}}{16}{figure.caption.26}\protected@file@percent }
+\newlabel{fig:label_confusion_50_2}{{19}{16}{$50\times 50$ inter-label confusion heatmap for Chunk-BERT v2 (Focal Loss)}{figure.caption.26}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {20}{\ignorespaces $50\times 50$ inter-label confusion heatmap for Ensemble v4 (TF-IDF + BiLSTM). Cleanest diagonal pattern.}}{16}{figure.caption.27}\protected@file@percent }
+\newlabel{fig:label_confusion_ens}{{20}{16}{$50\times 50$ inter-label confusion heatmap for Ensemble v4 (TF-IDF + BiLSTM). Cleanest diagonal pattern}{figure.caption.27}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.5}Most Confused Label Pairs}{17}{subsection.5.5}\protected@file@percent }
+\newlabel{sec:confused_pairs}{{5.5}{17}{Most Confused Label Pairs}{subsection.5.5}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {8}{\ignorespaces Top-5 most confused label pairs per model (bidirectional swap count on test set).}}{17}{table.caption.28}\protected@file@percent }
+\newlabel{tab:confused_pairs}{{8}{17}{Top-5 most confused label pairs per model (bidirectional swap count on test set)}{table.caption.28}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.6}Hardest Codes to Predict}{17}{subsection.5.6}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {9}{\ignorespaces Five hardest ICD-10 codes by F1 score for BiLSTM-LAAT on the test set.}}{17}{table.caption.29}\protected@file@percent }
+\newlabel{tab:hardest_codes}{{9}{17}{Five hardest ICD-10 codes by F1 score for BiLSTM-LAAT on the test set}{table.caption.29}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.7}Head vs.\ Tail Performance}{18}{subsection.5.7}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {21}{\ignorespaces Per-label F1 scores vs.\ training frequency (log scale) for all four primary models. BiLSTM-LAAT shows the most consistent performance across all frequency buckets, while ClinicalBERT struggles on low-frequency codes due to truncation.}}{18}{figure.caption.30}\protected@file@percent }
+\newlabel{fig:head_tail}{{21}{18}{Per-label F1 scores vs.\ training frequency (log scale) for all four primary models. BiLSTM-LAAT shows the most consistent performance across all frequency buckets, while ClinicalBERT struggles on low-frequency codes due to truncation}{figure.caption.30}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.8}Per-Label Scatter Comparison}{18}{subsection.5.8}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {22}{\ignorespaces Per-label F1 scatter: BiLSTM-LAAT vs.\ other models. Points above the diagonal indicate codes where BiLSTM-LAAT outperforms. It dominates on most labels across all comparisons.}}{18}{figure.caption.31}\protected@file@percent }
+\newlabel{fig:scatter_d}{{22}{18}{Per-label F1 scatter: BiLSTM-LAAT vs.\ other models. Points above the diagonal indicate codes where BiLSTM-LAAT outperforms. It dominates on most labels across all comparisons}{figure.caption.31}{}}
+\citation{vu2020label}
+\@writefile{lof}{\contentsline {figure}{\numberline {23}{\ignorespaces Per-label F1 scatter: TF-IDF + SGD vs.\ Chunk-BERT (v1 and v2), and Ensemble v1 vs.\ v2. Most points fall below the diagonal in the left panel, indicating Model A outperforms Model C on a per-label basis despite similar aggregate scores.}}{19}{figure.caption.32}\protected@file@percent }
+\newlabel{fig:scatter_ac}{{23}{19}{Per-label F1 scatter: TF-IDF + SGD vs.\ Chunk-BERT (v1 and v2), and Ensemble v1 vs.\ v2. Most points fall below the diagonal in the left panel, indicating Model A outperforms Model C on a per-label basis despite similar aggregate scores}{figure.caption.32}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6}Discussion}{19}{section.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.1}Key Findings}{19}{subsection.6.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.2}Challenges Faced}{19}{subsection.6.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.3}Strengths}{20}{subsection.6.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.4}Shortcomings}{20}{subsection.6.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.5}Test Set Examples}{20}{subsection.6.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {7}Future Work}{20}{section.7}\protected@file@percent }
+\bibcite{alsentzer2019publicly}{{1}{2019}{{Alsentzer et al.}}{{}}}
+\bibcite{huang2022plmicd}{{2}{2022}{{Huang et al.}}{{}}}
+\bibcite{johnson2023mimiciv}{{3}{2023}{{Johnson et al.}}{{}}}
+\bibcite{lin2017focal}{{4}{2017}{{Lin et al.}}{{}}}
+\bibcite{mullenbach2018explainable}{{5}{2018}{{Mullenbach et al.}}{{}}}
+\bibcite{perotte2014diagnosis}{{6}{2014}{{Perotte et al.}}{{}}}
+\bibcite{vu2020label}{{7}{2020}{{Vu et al.}}{{}}}
+\@writefile{toc}{\contentsline {section}{\numberline {A}Appendix: User Manual}{22}{appendix.A}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {A.1}Code Structure}{22}{subsection.A.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {A.2}Environment Setup}{22}{subsection.A.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {A.3}Running the Code}{23}{subsection.A.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {A.4}Key Configuration}{23}{subsection.A.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {A.5}Unit Test Coverage}{24}{subsection.A.5}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {10}{\ignorespaces Unit test summary.}}{24}{table.caption.33}\protected@file@percent }
+\newlabel{tab:tests}{{10}{24}{Unit test summary}{table.caption.33}{}}
+\gdef \@abspage@last{24}

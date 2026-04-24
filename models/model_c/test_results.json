@@ -1,0 +1,10 @@
+{
+  "Model": "Model C (Chunk+LabelAttn)",
+  "Threshold": 0.625,
+  "Micro-F1": 0.5305,
+  "Macro-F1": 0.5,
+  "Micro-Prec": 0.4191,
+  "Micro-Rec": 0.7225,
+  "Macro-AUPRC": 0.5201,
+  "Micro-AUROC": 0.8938
+}

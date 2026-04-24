@@ -16,17 +16,28 @@ CS6120 NLP — Final Project
 """
 
 import importlib
+import importlib.util
 import subprocess
 import sys
 import os
 import re
 import json
 import textwrap
+import shutil
+import warnings
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 
+# Keep demo output readable: sklearn model pickle version warnings are common in class projects.
+warnings.filterwarnings("ignore", message="Trying to unpickle estimator .* from version .*", category=UserWarning)
+
 # ── Dependency bootstrap ──────────────────────────────────────────────
+
+PYTHON_REQ_DISPLAY = ">=3.10,<3.13 (recommended: 3.11)"
+PYTHON_REQ_MIN = (3, 10)
+PYTHON_REQ_MAX_EXCL = (3, 13)
+RECOMMENDED_PY = "3.11"
 
 REQUIRED = [
     ("numpy",        "numpy"),
@@ -39,32 +50,170 @@ REQUIRED = [
     ("streamlit",    "streamlit"),
 ]
 
+SKIP_MODEL = object()
+
+
+def _in_venv() -> bool:
+    # `sys.base_prefix` exists in venv/virtualenv; fallback to env var for safety.
+    return (
+        getattr(sys, "base_prefix", sys.prefix) != sys.prefix
+        or bool(os.environ.get("VIRTUAL_ENV"))
+    )
+
+
+def _venv_python(venv_dir: Path) -> Path:
+    if os.name == "nt":
+        return venv_dir / "Scripts" / "python.exe"
+    return venv_dir / "bin" / "python"
+
+
+def _python_is_compatible() -> bool:
+    v = sys.version_info
+    return (v.major, v.minor) >= PYTHON_REQ_MIN and (v.major, v.minor) < PYTHON_REQ_MAX_EXCL
+
+
+def _run_checked(cmd: list[str], *, cwd: Path | None = None, env: dict[str, str] | None = None) -> None:
+    subprocess.check_call(cmd, cwd=str(cwd) if cwd else None, env=env)
+
+
+def bootstrap_venv_and_reexec() -> None:
+    """
+    Make `python demo.py` work on a fresh clone:
+    - ensure a compatible Python is used (best-effort auto install via `uv`)
+    - create `.venv` in repo root (if missing)
+    - re-exec this script inside that venv
+    """
+    if os.environ.get("DEMO_BOOTSTRAPPED") == "1":
+        return
+
+    # If we're already in an active venv, keep going—dependency install will happen later.
+    if _in_venv():
+        os.environ["DEMO_BOOTSTRAPPED"] = "1"
+        return
+
+    venv_dir = PROJECT_ROOT / ".venv"
+    vpy = _venv_python(venv_dir)
+
+    # If a venv already exists, prefer reusing it without prompting.
+    if vpy.exists():
+        env = os.environ.copy()
+        env["DEMO_BOOTSTRAPPED"] = "1"
+        cmd = [str(vpy), str(Path(__file__).resolve())] + sys.argv[1:]
+        os.execve(str(vpy), cmd, env)
+
+    # If there's no compatible Python, try to get one automatically.
+    if not _python_is_compatible():
+        uv = shutil.which("uv")
+        if not uv:
+            # Best-effort: install uv (preferred) so we can auto-install Python.
+            print(f"\n  Detected Python {sys.version.split()[0]} (needs {PYTHON_REQ_DISPLAY}).")
+            print("  Attempting to install `uv` for automatic setup...\n")
+            try:
+                if sys.platform == "darwin" and shutil.which("brew"):
+                    _run_checked(["brew", "install", "uv"], cwd=PROJECT_ROOT)
+                elif os.name == "nt" and shutil.which("winget"):
+                    _run_checked(["winget", "install", "--id", "Astral.Uv", "-e"], cwd=PROJECT_ROOT)
+                else:
+                    # Fallback: official installer (works on macOS/Linux).
+                    # This only runs when brew/winget are unavailable.
+                    _run_checked(
+                        ["sh", "-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"],
+                        cwd=PROJECT_ROOT,
+                    )
+            except Exception:
+                pass
+            uv = shutil.which("uv")
+
+        if uv:
+            print(f"\n  Detected Python {sys.version.split()[0]} (needs {PYTHON_REQ_DISPLAY}).")
+            print(f"  Installing/using Python {RECOMMENDED_PY} via `uv`...\n")
+            # Create venv with the requested Python (downloads Python if needed).
+            uv_env = os.environ.copy()
+            uv_env["UV_VENV_CLEAR"] = "1"  # avoid interactive prompt if venv exists
+            _run_checked(
+                [uv, "venv", "--clear", "--seed", "--python", RECOMMENDED_PY, str(venv_dir)],
+                cwd=PROJECT_ROOT,
+                env=uv_env,
+            )
+        else:
+            print(f"\n  ERROR: Detected Python {sys.version.split()[0]} but this demo needs {PYTHON_REQ_DISPLAY}.")
+            print(f"  Install Python {RECOMMENDED_PY} (recommended) and re-run, or install `uv` for auto-setup:")
+            print("    - Install `uv`: https://docs.astral.sh/uv/")
+            print(f"    - Then: uv venv --python {RECOMMENDED_PY} .venv && ./.venv/bin/python demo.py\n")
+            raise SystemExit(2)
+
+    # Ensure the venv exists (using the current Python if it is compatible).
+    if not vpy.exists():
+        print("\n  Creating virtual environment in .venv ...\n")
+        _run_checked([sys.executable, "-m", "venv", str(venv_dir)], cwd=PROJECT_ROOT)
+
+    # Re-exec inside venv.
+    env = os.environ.copy()
+    env["DEMO_BOOTSTRAPPED"] = "1"
+    cmd = [str(vpy), str(Path(__file__).resolve())] + sys.argv[1:]
+    os.execve(str(vpy), cmd, env)
+
 
 def ensure_packages():
+    # Fast path: once deps are installed in `.venv`, skip repeated checks.
+    venv_dir = PROJECT_ROOT / ".venv"
+    marker = venv_dir / ".demo_deps_installed"
+    marker_payload = "\n".join([f"{imp}=={pip_name}" for imp, pip_name in REQUIRED]) + "\n"
+    if marker.exists():
+        try:
+            if marker.read_text(encoding="utf-8") == marker_payload:
+                return
+        except Exception:
+            pass
+
     missing = []
     for imp, pip_name in REQUIRED:
-        try:
-            importlib.import_module(imp)
-        except ImportError:
+        # Avoid importing heavy packages like torch/transformers just to test presence.
+        if importlib.util.find_spec(imp) is None:
             missing.append(pip_name)
     if missing:
         print(f"  Installing {len(missing)} package(s): {', '.join(missing)}")
+        # In a venv, pip installs are safe (avoids Homebrew/PEP-668 system protection).
+        # Some venv creators (e.g., `uv venv` without --seed) may not include pip.
+        try:
+            import pip  # noqa: F401
+        except Exception:
+            subprocess.check_call([sys.executable, "-m", "ensurepip", "--upgrade"], stdout=subprocess.DEVNULL)
         subprocess.check_call(
             [sys.executable, "-m", "pip", "install", "-q"] + missing,
             stdout=subprocess.DEVNULL,
         )
         print("  Done.\n")
 
+    # Write marker so subsequent runs skip checks entirely.
+    try:
+        venv_dir.mkdir(parents=True, exist_ok=True)
+        marker.write_text(marker_payload, encoding="utf-8")
+    except Exception:
+        pass
+
 
 # ── Paths ─────────────────────────────────────────────────────────────
 
 DATA_DIR     = PROJECT_ROOT / "datasets" / "processed"
 MODELS_DIR   = PROJECT_ROOT / "data" / "models"
+ALT_MODELS   = PROJECT_ROOT / "models"   # fallback location for weights
 MODEL_A_DIR  = MODELS_DIR / "model_a"
 MODEL_B_DIR  = MODELS_DIR / "model_b"
 MODEL_C_DIR  = MODELS_DIR / "model_c"
 MODEL_D_DIR  = MODELS_DIR / "model_d"
 ENSEMBLE_DIR = MODELS_DIR / "ensemble"
+
+
+def _resolve(primary: Path, alt_base: Path = ALT_MODELS) -> Path:
+    """Return primary path if it exists, else try the same relative path under alt_base."""
+    if primary.exists():
+        return primary
+    rel = primary.relative_to(MODELS_DIR)
+    alt = alt_base / rel
+    if alt.exists():
+        return alt
+    return primary
 
 ICD10_DESC = {
     "E119":  "Type 2 diabetes w/o complications",
@@ -181,7 +330,7 @@ def load_model_a():
     import scipy.sparse as sp
 
     vec_path = DATA_DIR / "tfidf_vectorizer.pkl"
-    clf_path = MODEL_A_DIR / "clf_sgd.pkl"
+    clf_path = _resolve(MODEL_A_DIR / "clf_sgd.pkl")
     mlb_path = DATA_DIR / "mlb.pkl"
 
     for p in [vec_path, clf_path, mlb_path]:
@@ -215,7 +364,7 @@ def load_model_b():
     from src.config import TRANSFORMER_MODEL
 
     mlb_path = DATA_DIR / "mlb.pkl"
-    wt_path  = MODEL_B_DIR / "best_model.pt"
+    wt_path  = _resolve(MODEL_B_DIR / "best_model.pt")
 
     for p in [mlb_path, wt_path]:
         if not p.exists():
@@ -229,7 +378,7 @@ def load_model_b():
 
     tokenizer = AutoTokenizer.from_pretrained(TRANSFORMER_MODEL)
     model = ICDClassifier(TRANSFORMER_MODEL, num_labels=num_labels)
-    model.load_state_dict(torch.load(wt_path, map_location=device))
+    model.load_state_dict(torch.load(wt_path, map_location=device, weights_only=True))
     model.to(device).eval()
 
     return model, tokenizer, mlb, None
@@ -264,7 +413,10 @@ def load_model_c():
     from src.config import TRANSFORMER_MODEL, MODEL_C_MAX_CHUNKS
 
     mlb_path = DATA_DIR / "mlb.pkl"
-    wt_path  = MODEL_C_DIR / "best_model.pt"
+    # Some repos keep the best weights under `model_c/v2/`.
+    wt_path  = _resolve(MODEL_C_DIR / "best_model.pt")
+    if not wt_path.exists():
+        wt_path = _resolve(MODEL_C_DIR / "v2" / "best_model.pt")
 
     for p in [mlb_path, wt_path]:
         if not p.exists():
@@ -281,7 +433,7 @@ def load_model_c():
         TRANSFORMER_MODEL, num_labels=num_labels,
         max_chunks=MODEL_C_MAX_CHUNKS, freeze_bert=False,
     )
-    model.load_state_dict(torch.load(wt_path, map_location=device))
+    model.load_state_dict(torch.load(wt_path, map_location=device, weights_only=True))
     model.to(device).eval()
 
     return model, tokenizer, mlb, None
@@ -343,11 +495,16 @@ def load_model_d():
 
     mlb_path   = DATA_DIR / "mlb.pkl"
     vocab_path = DATA_DIR / "word_vocab.pkl"
-    wt_path    = MODEL_D_DIR / "best_model.pt"
+    # Some exports name this differently.
+    if not vocab_path.exists():
+        alt_vocab = DATA_DIR / "vocab.pkl"
+        if alt_vocab.exists():
+            vocab_path = alt_vocab
+    wt_path    = _resolve(MODEL_D_DIR / "best_model.pt")
 
     for p in [mlb_path, vocab_path, wt_path]:
         if not p.exists():
-            return None, None, None, None, f"Missing: {p}"
+            return None, None, None, f"Missing: {p}"
 
     with open(mlb_path, "rb") as f:
         mlb = pickle.load(f)
@@ -360,7 +517,7 @@ def load_model_d():
     model = BiLSTMLAAT(
         vocab_size=len(word2idx), num_labels=num_labels,
     )
-    model.load_state_dict(torch.load(wt_path, map_location=device))
+    model.load_state_dict(torch.load(wt_path, map_location=device, weights_only=True))
     model.to(device).eval()
 
     return model, word2idx, mlb, None
@@ -401,6 +558,7 @@ def get_threshold(model_key):
     }
     if model_key in threshold_map:
         path, extractor = threshold_map[model_key]
+        path = _resolve(path)
         if path.exists():
             with open(path) as f:
                 return extractor(json.load(f))
@@ -430,7 +588,7 @@ def print_predictions(probs, vocab, threshold, model_name, top_n=20):
         desc = ICD10_DESC.get(code, f"ICD-10 {code}")
         if len(desc) > 38:
             desc = desc[:35] + "..."
-        flag = " YES" if prob >= threshold else "    "
+        flag = " YES" if prob >= threshold else "  NO"
         marker = "*" if prob >= threshold else " "
         print(f"  {rank:>2d} {marker} {code:<8s}  {desc:<38s}  {prob:6.4f} {flag}")
 
@@ -453,6 +611,55 @@ MODEL_CHOICES = [
 ]
 
 SAMPLE_KEYS = list(SAMPLES.keys())
+
+def available_models():
+    """
+    Return (choices, unavailable_messages).
+    We keep the demo friendly by only offering models whose required artifact
+    files exist in the repo.
+    """
+    msgs = []
+    choices = []
+
+    # Model A needs vectorizer + classifier + mlb
+    a_missing = [p for p in [DATA_DIR / "tfidf_vectorizer.pkl", _resolve(MODEL_A_DIR / "clf_sgd.pkl"), DATA_DIR / "mlb.pkl"] if not p.exists()]
+    if a_missing:
+        msgs.append("Model A unavailable (missing: " + ", ".join(str(p.relative_to(PROJECT_ROOT)) for p in a_missing) + ")")
+    else:
+        choices.append(MODEL_CHOICES[0])
+
+    # Model B needs weights + mlb
+    b_missing = [p for p in [DATA_DIR / "mlb.pkl", _resolve(MODEL_B_DIR / "best_model.pt")] if not p.exists()]
+    if b_missing:
+        msgs.append("Model B unavailable (missing: " + ", ".join(str(p.relative_to(PROJECT_ROOT)) for p in b_missing) + ")")
+    else:
+        choices.append(MODEL_CHOICES[1])
+
+    # Model C needs weights + mlb
+    c_missing = [p for p in [DATA_DIR / "mlb.pkl", _resolve(MODEL_C_DIR / "best_model.pt")] if not p.exists()]
+    if c_missing:
+        msgs.append("Model C unavailable (missing: " + ", ".join(str(p.relative_to(PROJECT_ROOT)) for p in c_missing) + ")")
+    else:
+        choices.append(MODEL_CHOICES[2])
+
+    # Model D needs weights + mlb + vocab
+    d_missing = [p for p in [DATA_DIR / "mlb.pkl", DATA_DIR / "word_vocab.pkl", _resolve(MODEL_D_DIR / "best_model.pt")] if not p.exists()]
+    if d_missing:
+        msgs.append("Model D unavailable (missing: " + ", ".join(str(p.relative_to(PROJECT_ROOT)) for p in d_missing) + ")")
+    else:
+        choices.append(MODEL_CHOICES[3])
+
+    # Ensemble needs config + A + D
+    ens_missing = [p for p in [_resolve(ENSEMBLE_DIR / "ensemble_config.json")] if not p.exists()]
+    if ens_missing or any(m.startswith("Model A unavailable") for m in msgs) or any(m.startswith("Model D unavailable") for m in msgs):
+        if ens_missing:
+            msgs.append("Ensemble unavailable (missing: " + ", ".join(str(p.relative_to(PROJECT_ROOT)) for p in ens_missing) + ")")
+        else:
+            msgs.append("Ensemble unavailable (requires Model A + Model D artifacts)")
+    else:
+        choices.append(MODEL_CHOICES[4])
+
+    return choices, msgs
 
 
 def prompt_choice(prompt, valid):
@@ -502,7 +709,21 @@ def run_single_model(model_key, text):
             return None
         print(" done")
         vocab = list(mlb.classes_)
-        probs = predict_model_a(text, vec, clf)
+        # The pickled sklearn model/vectorizer must match; otherwise feature dims differ.
+        # If mismatched, skip Model A so the rest of the demo still works.
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")  # avoid noisy sklearn pickle version warnings in demo
+                probs = predict_model_a(text, vec, clf)
+        except ValueError as e:
+            msg = str(e)
+            if "n_features" in msg or "features" in msg:
+                print("  FAILED")
+                print("  Model A artifacts are mismatched (vectorizer/features don’t match the classifier).")
+                print(f"  Details: {msg}")
+                print("  Skipping Model A.\n")
+                return SKIP_MODEL
+            raise
         t = get_threshold("a")
         return probs, vocab, t, "Model A (TF-IDF + SGD)"
 
@@ -532,8 +753,7 @@ def run_single_model(model_key, text):
 
     elif model_key == "d":
         print("  Loading Model D (BiLSTM-LAAT)...", end="", flush=True)
-        result = load_model_d()
-        model, word2idx, mlb, err = result[0], result[1], result[2], result[3]
+        model, word2idx, mlb, err = load_model_d()
         if err:
             print(f" FAILED\n  {err}")
             return None
@@ -550,7 +770,7 @@ def run_ensemble(text):
     """Run Ensemble v4 (A + D blend)."""
     import numpy as np
 
-    cfg_path = ENSEMBLE_DIR / "ensemble_config.json"
+    cfg_path = _resolve(ENSEMBLE_DIR / "ensemble_config.json")
     if not cfg_path.exists():
         print(f"  Missing: {cfg_path}")
         return None
@@ -561,12 +781,16 @@ def run_ensemble(text):
     w_a, w_d, t_ens = v4["weight_A"], v4["weight_D"], v4["threshold"]
 
     res_a = run_single_model("a", text)
-    if res_a is None:
+    if res_a is None or res_a is SKIP_MODEL:
+        print("  Ensemble v4 requires Model A + Model D artifacts.")
+        print("  Skipping Ensemble (Model A unavailable).\n")
         return None
     probs_a, vocab, _, _ = res_a
 
     res_d = run_single_model("d", text)
-    if res_d is None:
+    if res_d is None or res_d is SKIP_MODEL:
+        print("  Ensemble v4 requires Model A + Model D artifacts.")
+        print("  Skipping Ensemble (Model D unavailable).\n")
         return None
     probs_d = res_d[0]
 
@@ -575,12 +799,19 @@ def run_ensemble(text):
 
 
 def cli_mode():
-    print("\n  Available models:")
-    for key, name, note in MODEL_CHOICES:
-        print(f"    [{key}] {name}  {note}")
-    print(f"    [*] Run ALL models on same input")
+    choices, msgs = available_models()
 
-    valid = [k for k, _, _ in MODEL_CHOICES] + ["*"]
+    print("\n  Available models:")
+    for key, name, note in choices:
+        print(f"    [{key}] {name}  {note}")
+    if len(choices) > 1:
+        print(f"    [*] Run ALL available models on same input")
+    if msgs:
+        print("\n  Note:")
+        for m in msgs:
+            print(f"    - {m}")
+
+    valid = [k for k, _, _ in choices] + (["*"] if len(choices) > 1 else [])
     model_choice = prompt_choice("\n  Choose model: ", valid)
 
     sample_name, text = choose_sample()
@@ -590,7 +821,7 @@ def cli_mode():
     print(f"  \"{preview}\"\n")
 
     if model_choice == "*":
-        keys_to_run = ["a", "b", "c", "d", "e"]
+        keys_to_run = [k for k, _, _ in choices]
     else:
         keys_to_run = [model_choice]
 
@@ -600,6 +831,8 @@ def cli_mode():
         else:
             result = run_single_model(key, text)
 
+        if result is SKIP_MODEL:
+            continue
         if result is not None:
             probs, vocab, threshold, name = result
             print_predictions(probs, vocab, threshold, name)
@@ -621,6 +854,9 @@ def streamlit_mode():
             sys.executable, "-m", "streamlit", "run",
             str(demo_script),
             "--server.headless", "true",
+            # Avoid Streamlit's file watcher importing optional transformers vision modules
+            # (which can error if torchvision isn't installed).
+            "--server.fileWatcherType", "none",
             "--browser.gatherUsageStats", "false",
         ],
         cwd=str(PROJECT_ROOT),
@@ -661,4 +897,5 @@ def main():
 
 
 if __name__ == "__main__":
+    bootstrap_venv_and_reexec()
     main()
