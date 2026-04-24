@@ -1,4 +1,7 @@
-"""Tests for src/data.py — text cleaning, truncation, and dataset classes."""
+"""Regression tests for preprocessing helpers in `src.data`.
+
+Focus is on de-id token stripping and smart truncation preserving clinical cues.
+"""
 import sys
 sys.path.insert(0, '..')
 

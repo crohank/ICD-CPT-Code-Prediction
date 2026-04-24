@@ -1,5 +1,8 @@
 """
-Pydantic request/response schemas for the ICD-10 prediction API.
+Request and response shapes for the FastAPI layer.
+
+Keeping these as Pydantic models gives you validation on `/predict` (min text
+length, sensible `top_n`) and a stable JSON contract for any frontend or tests.
 """
 from pydantic import BaseModel, Field
 from typing import Optional

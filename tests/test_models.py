@@ -1,4 +1,7 @@
-"""Tests for src/models.py — model architectures and ensemble."""
+"""Sanity checks for `src.models`: ensemble blending math and tiny forward shapes.
+
+We use `bert-tiny` and random weights so CI does not download full ClinicalBERT.
+"""
 import sys
 sys.path.insert(0, '..')
 

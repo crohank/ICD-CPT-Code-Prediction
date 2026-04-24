@@ -1,7 +1,8 @@
 """
-Explainability utilities for Model C (Label Attention).
-Extracts attention weights and generates highlighted text showing
-which words/phrases contributed to each predicted ICD-10 code.
+Turn Model C's label-attention weights into human-readable token lists.
+
+Used by the API (`explain=true`) and ad-hoc notebook debugging — runs a single
+forward with `return_attention=True` and filters padding/special tokens.
 """
 import numpy as np
 import torch

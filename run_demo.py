@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-ICD-10 Code Prediction — One-Click Demo Launcher
-=================================================
+ICD-10 Code Prediction — One-Click Streamlit Launcher
+======================================================
 
-Run this file to install all required packages and launch the interactive
-dashboard.  No other setup is necessary.
+Lightweight alternative to `demo.py`: installs a smaller dependency set and
+opens the same predict-only Streamlit app. It does **not** create a venv or
+pin Python; prefer `python demo.py` if you want that bootstrap behavior.
 
 Usage
 -----
@@ -12,20 +13,15 @@ Usage
 
 What happens
 ------------
-1. Missing Python packages are installed automatically (into the current
-   environment or virtualenv).
-2. A Streamlit dashboard opens in your default browser showing:
-   - Live ICD-10 code prediction from discharge summaries  (if model
-     artifacts are present in datasets/processed/)
-   - Side-by-side comparison of all 5 models + 5 ensemble variants
-   - Training curves, head / torso / tail F1 breakdowns
-   - Confusion matrices (once generated from notebooks)
-   - Exploratory Data Analysis plots
+1. Installs any missing packages into the **current** interpreter (quiet pip).
+2. Runs `streamlit run demo/streamlit_app.py` with headless-friendly flags,
+   including disabling Streamlit's file watcher so optional `torchvision` is
+   not pulled in during startup.
 
 Requirements
 ------------
-- Python >= 3.9
-- ~200 MB disk for packages on first run (cached afterwards)
+- Python that matches your project (3.10+ recommended; same as training).
+- Trained weights under `data/models/` and pickles under `datasets/processed/`.
 
 CS6120 NLP — Final Project
 """
@@ -89,6 +85,8 @@ def main():
             sys.executable, "-m", "streamlit", "run",
             str(DEMO_SCRIPT),
             "--server.headless", "true",
+            # Same rationale as `demo.py`: watcher can import vision stacks unnecessarily.
+            "--server.fileWatcherType", "none",
             "--browser.gatherUsageStats", "false",
         ],
         cwd=str(PROJECT_ROOT),

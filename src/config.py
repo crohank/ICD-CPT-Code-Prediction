@@ -1,14 +1,17 @@
 """
-Centralized configuration for the ICD-10 prediction pipeline.
-All paths, hyperparameters, and constants in one place.
+Single source of truth for paths and hyperparameters.
+
+Notebooks and scripts import from here so a path or LR change does not require
+hunting through copied literals. Nothing in this file reads the environment
+except what you add explicitly — keep it boring and importable.
 """
 import os
 from pathlib import Path
 
-# ── Project root (one level up from src/) ──────────────────────────────
+# Repo root (parent of `src/`).
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-# ── Data paths ─────────────────────────────────────────────────────────
+# Processed parquet/pickles and per-model checkpoint directories.
 DATA_DIR     = PROJECT_ROOT / "datasets" / "processed"
 MODEL_A_DIR  = PROJECT_ROOT / "data" / "models" / "model_a"
 MODEL_B_DIR  = PROJECT_ROOT / "data" / "models" / "model_b"
@@ -21,20 +24,20 @@ MODEL_D_DIR  = PROJECT_ROOT / "data" / "models" / "model_d"
 for d in [MODEL_A_DIR, MODEL_B_DIR, MODEL_C_DIR, MODEL_D_DIR, ENSEMBLE_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
-# ── Label filtering ────────────────────────────────────────────────────
+# How many ICD labels to keep in the multilabel head (50 / 500 / None = all).
 TOP_K_LABELS = 50           # Set to 50, 500, or None for full label set
 
-# ── TF-IDF config (Model A) ───────────────────────────────────────────
+# Model A — sparse linear baseline on character-like cleaned tokens.
 TFIDF_MAX_FEATURES = 50_000
 TFIDF_NGRAM_RANGE  = (1, 2)
 TFIDF_SUBLINEAR_TF = True
 
-# ── Transformer config (Model B / Model C) ────────────────────────────
+# Shared ClinicalBERT backbone for Models B and C.
 TRANSFORMER_MODEL = "emilyalsentzer/Bio_ClinicalBERT"
 MAX_SEQ_LEN       = 512
 HIDDEN_SIZE       = 768     # Bio_ClinicalBERT hidden dimension
 
-# ── Model B training hyperparams ───────────────────────────────────────
+# Model B — single-sequence fine-tuning (512 tokens).
 MODEL_B_LR         = 2e-5
 MODEL_B_EPOCHS     = 3
 MODEL_B_BATCH_SIZE = 32
@@ -42,7 +45,7 @@ MODEL_B_GRAD_ACCUM = 1
 MODEL_B_WARMUP     = 0.1
 MODEL_B_DROPOUT    = 0.1
 
-# ── Model C training hyperparams ───────────────────────────────────────
+# Model C — long documents via overlapping chunks + label-wise attention.
 MODEL_C_MAX_CHUNKS      = 6       # max 512-token chunks per document
 MODEL_C_CHUNK_STRIDE    = 256     # overlap between chunks (50%)
 MODEL_C_FROZEN_LR       = 1e-3    # LR when BERT is frozen
@@ -57,7 +60,7 @@ MODEL_C_FOCAL_GAMMA     = 2.0     # focal loss gamma (0 = standard BCE)
 MODEL_C_FOCAL_ALPHA     = 0.25    # focal loss alpha
 MODEL_C_EARLY_STOP      = 3       # early stopping patience (epochs without improvement)
 
-# ── Model D (BiLSTM-LAAT) training hyperparams ────────────────────────
+# Model D — word-level BiLSTM + LAAT (no subword tokenizer).
 MODEL_D_EMBED_DIM    = 200       # Word embedding dimension
 MODEL_D_HIDDEN_DIM   = 256       # BiLSTM hidden size (each direction)
 MODEL_D_NUM_LAYERS   = 1         # BiLSTM layers
@@ -73,11 +76,11 @@ MODEL_D_EARLY_STOP   = 3         # Early stopping patience
 MODEL_D_FOCAL_GAMMA  = 2.0
 MODEL_D_FOCAL_ALPHA  = 0.25
 
-# ── General ────────────────────────────────────────────────────────────
+# Reproducibility and mixed precision toggle.
 SEED          = 42
 USE_AMP       = True       # fp16 mixed precision (CUDA only)
 
-# ── Smart truncation section patterns (for Model B) ───────────────────
+# Regexes for "smart truncate": grab high-signal sections before stuffing BERT.
 SECTION_PATTERNS = [
     r'discharge diagnos[ei]s.*?(?=\n[A-Z][A-Z ]{3,}:|$)',
     r'discharge condition.*?(?=\n[A-Z][A-Z ]{3,}:|$)',

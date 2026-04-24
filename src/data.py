@@ -1,6 +1,7 @@
 """
-Data loading, text preprocessing, and PyTorch Dataset classes.
-Handles both standard (Model B) and chunked (Model C) tokenization.
+Everything that turns raw discharge rows into tensors: cleaning, optional
+section-aware truncation, HuggingFace tokenization, chunking for long notes,
+and word-level batching for the BiLSTM model.
 """
 import re
 import pickle
@@ -18,7 +19,7 @@ from .config import (
     MODEL_D_MAX_TOKENS, MODEL_D_VOCAB_SIZE,
 )
 
-# ── Text cleaning ──────────────────────────────────────────────────────
+# Strip MIMIC-style placeholders and normalize so train/test see the same alphabet.
 
 _DEID_RE       = re.compile(r'\[\*\*[^\]]*\*\*\]')
 _WHITESPACE_RE = re.compile(r'[\s\n\r\t]+')
@@ -34,7 +35,7 @@ def clean_text(text: str) -> str:
     return text
 
 
-# ── Section-based smart truncation (for Model B) ──────────────────────
+# Prefer discharge diagnosis / course chunks when we cannot fit the whole note in 512 tokens.
 
 _COMPILED_SECTIONS = [
     re.compile(p, re.IGNORECASE | re.DOTALL) for p in SECTION_PATTERNS
@@ -60,7 +61,7 @@ def smart_truncate(text: str, max_chars: int = 2048) -> str:
     return ' '.join(segments)[:max_chars]
 
 
-# ── Data loading helpers ───────────────────────────────────────────────
+# Small I/O helpers used by training scripts and notebooks.
 
 def load_splits():
     """Load train/val/test DataFrames from processed parquet files."""
@@ -78,7 +79,7 @@ def load_label_binarizer():
         return pickle.load(f)
 
 
-# ── ICD-10 Code Descriptions (for semantic label initialization) ───────
+# Long-form descriptions — used when initializing label attention queries, not for loss.
 
 # Top-50 ICD-10 code descriptions (manually curated from CMS)
 # Used by LabelAttentionClassifier.init_label_queries_from_descriptions()
@@ -165,7 +166,7 @@ def build_label_matrix(df, mlb):
     return mlb.transform(df['icd_codes']).astype(np.float32)
 
 
-# ── Standard Dataset (Model B — single 512-token input) ───────────────
+# Model B dataset: one truncated window per document.
 
 class ICDDataset(Dataset):
     """
@@ -196,7 +197,7 @@ class ICDDataset(Dataset):
         }
 
 
-# ── Chunked Dataset (Model C — multiple 512-token chunks) ─────────────
+# Model C dataset: stack overlapping BERT windows; collate pads chunk dimension.
 
 class ChunkedICDDataset(Dataset):
     """
@@ -291,7 +292,7 @@ class ChunkedICDDataset(Dataset):
         }
 
 
-# ── Word Vocabulary (Model D — BiLSTM) ──────────────────────────────
+# Build / persist the word vocab Model D indexes into (frequency-trimmed).
 
 PAD_IDX = 0
 UNK_IDX = 1
@@ -316,7 +317,7 @@ def build_word_vocab(texts, max_vocab_size: int = MODEL_D_VOCAB_SIZE):
     return word2idx
 
 
-# ── BiLSTM Dataset (Model D — word-level tokenization) ──────────────
+# Model D dataset: integer word ids up to MAX_TOKENS, no subword splitting.
 
 class BiLSTMDataset(Dataset):
     """

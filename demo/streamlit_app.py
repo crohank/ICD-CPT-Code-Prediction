@@ -1,8 +1,15 @@
 """
-Streamlit dashboard for ICD-10 Code Prediction project.
+Streamlit UI for ICD-10 code prediction.
 
-Run with:
+This app is intentionally minimal: pick a model, paste or choose sample text,
+run predict, read the table. Thresholds are not user-tunable here — they are
+read from the same JSON files the training notebooks write (`test_results.json`,
+`results.json`, ensemble config, etc.) so what you see matches offline eval.
+
+Run (from repo root):
     streamlit run demo/streamlit_app.py
+Or use `python demo.py` → dashboard, which adds flags to avoid noisy optional
+imports from Streamlit's file watcher.
 """
 import streamlit as st
 import pandas as pd
@@ -15,11 +22,10 @@ from pathlib import Path
 
 import torch
 
-# ── Paths ─────────────────────────────────────────────────────────────
+# Repo root on `sys.path` so `import src...` works like the training scripts.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
-DATA_DIR     = PROJECT_ROOT / "data"
-MODELS_DIR   = DATA_DIR / "models"
+MODELS_DIR   = PROJECT_ROOT / "data" / "models"
 ALT_MODELS   = PROJECT_ROOT / "models"
 
 
@@ -37,14 +43,7 @@ def _resolve(primary: Path) -> Path:
     return primary
 
 
-MODEL_DIRS = {
-    "Model A (TF-IDF + SGD)":     MODELS_DIR / "model_a",
-    "Model B (ClinicalBERT)":     MODELS_DIR / "model_b",
-    "Model C v1 (Chunk+Attn)":    MODELS_DIR / "model_c",
-    "Model C v2 (Fixed+Focal)":   MODELS_DIR / "model_c" / "v2",
-    "Model D (BiLSTM-LAAT)":      MODELS_DIR / "model_d",
-}
-
+# Friendly blurbs for the results table (codes themselves come from `mlb.classes_`).
 ICD10_DESC = {
     "E119":  "Type 2 diabetes mellitus without complications",
     "I10":   "Essential primary hypertension",
@@ -97,31 +96,13 @@ ICD10_DESC = {
     "E8342": "Hyposmolality / hyponatremia",
 }
 
-# ── Page config ───────────────────────────────────────────────────────
 st.set_page_config(
     page_title="ICD-10 Code Predictor",
     page_icon="🏥",
     layout="wide",
 )
 
-# ── Sidebar navigation ───────────────────────────────────────────────
-st.sidebar.title("🏥 ICD-10 Dashboard")
-page = st.sidebar.radio(
-    "Navigate",
-    ["Overview", "Predict", "Model Details", "Training Curves", "Confusion Matrices", "EDA"],
-)
-st.sidebar.divider()
-st.sidebar.caption("CS6120 NLP Final Project\nICD-10 Code Prediction from MIMIC-IV")
-
-
-# ── Helpers ───────────────────────────────────────────────────────────
-@st.cache_data
-def load_comparison():
-    csv_path = MODELS_DIR / "ensemble" / "final_comparison_all_models.csv"
-    if csv_path.exists():
-        return pd.read_csv(csv_path)
-    return None
-
+# Cached JSON / threshold helpers — keeps reruns fast when you change widgets.
 
 @st.cache_data
 def load_ensemble_config():
@@ -132,13 +113,6 @@ def load_ensemble_config():
     return None
 
 
-def find_images(directory, pattern="*.png"):
-    p = Path(directory)
-    if not p.exists():
-        return []
-    return sorted(p.glob(pattern))
-
-
 def clean_text(text):
     text = re.sub(r'\[\*\*[^\]]*\*\*\]', ' ', text)
     text = text.lower()
@@ -147,11 +121,62 @@ def clean_text(text):
     return text
 
 
-# ── Model loading ────────────────────────────────────────────────────
-# Looks for weight files that the notebooks produce.
-# Model A: datasets/processed/tfidf_vectorizer.pkl + data/models/model_a/clf_sgd.pkl + datasets/processed/mlb.pkl
-# Model D: datasets/processed/word_vocab.pkl + data/models/model_d/best_model.pt + datasets/processed/mlb.pkl
-# Etc.
+def get_fixed_threshold(selected_model: str) -> float:
+    """
+    Thresholds are fixed to the values saved by the training/eval notebooks.
+    """
+    if selected_model == "Model A (TF-IDF + SGD)":
+        path = _resolve(MODELS_DIR / "model_a" / "results.json")
+        if not path.exists():
+            raise FileNotFoundError(str(path))
+        with open(path) as f:
+            d = json.load(f)
+        return float(d["test"]["threshold"])
+
+    if selected_model == "Model B (ClinicalBERT)":
+        path = _resolve(MODELS_DIR / "model_b" / "test_results.json")
+        if not path.exists():
+            raise FileNotFoundError(str(path))
+        with open(path) as f:
+            d = json.load(f)
+        return float(d["threshold"])
+
+    if selected_model == "Model C v1 (Chunk+Attn)":
+        path = _resolve(MODELS_DIR / "model_c" / "test_results.json")
+        if not path.exists():
+            raise FileNotFoundError(str(path))
+        with open(path) as f:
+            d = json.load(f)
+        return float(d["Threshold"])
+
+    if selected_model == "Model C v2 (Fixed+Focal)":
+        path = _resolve(MODELS_DIR / "model_c" / "v2" / "test_results.json")
+        if not path.exists():
+            raise FileNotFoundError(str(path))
+        with open(path) as f:
+            d = json.load(f)
+        # Notebook saves both global + per-label; Streamlit uses the global threshold.
+        return float(d["global_threshold"]["Threshold"])
+
+    if selected_model == "Model D (BiLSTM-LAAT)":
+        path = _resolve(MODELS_DIR / "model_d" / "test_results.json")
+        if not path.exists():
+            raise FileNotFoundError(str(path))
+        with open(path) as f:
+            d = json.load(f)
+        return float(d["Threshold"])
+
+    if selected_model == "Ensemble v4 (A+D, best)":
+        cfg = load_ensemble_config()
+        if not cfg or "ensemble_v4" not in cfg:
+            raise FileNotFoundError(str(MODELS_DIR / "ensemble" / "ensemble_config.json"))
+        return float(cfg["ensemble_v4"]["threshold"])
+
+    raise ValueError(f"Unknown model selection: {selected_model}")
+
+
+# Each `try_load_*` mirrors the artifact layout from the notebooks; paths go through
+# `_resolve` so weights can live under `data/models/...` or the legacy `models/...` tree.
 
 @st.cache_resource
 def try_load_model_a(data_path):
@@ -407,7 +432,7 @@ def render_predictions(probs, vocab, top_n, threshold):
     """Render a prediction results table given probability array."""
     ranked = np.argsort(probs)[::-1][:top_n]
     n_predicted = sum(1 for i in ranked if probs[i] >= threshold)
-    st.subheader(f"Predictions — {n_predicted} codes above threshold ({threshold:.2f})")
+    st.subheader(f"Predictions — {n_predicted} codes above threshold ({threshold:.3f})")
 
     rows = []
     for idx in ranked:
@@ -436,417 +461,216 @@ def render_predictions(probs, vocab, top_n, threshold):
         st.markdown("**Predicted codes:** " + "  ".join(f"`{c}`" for c in predicted_codes))
 
 
-# ══════════════════════════════════════════════════════════════════════
-#  PAGE: Predict
-# ══════════════════════════════════════════════════════════════════════
-if page == "Predict":
-    st.title("🏥 ICD-10 Code Prediction")
+# --- Main layout: model picker + threshold (read-only) + text in + predict ---
 
-    MODEL_OPTIONS = [
-        "Model A (TF-IDF + SGD)",
-        "Model B (ClinicalBERT)",
-        "Model C v1 (Chunk+Attn)",
-        "Model C v2 (Fixed+Focal)",
-        "Model D (BiLSTM-LAAT)",
-        "Ensemble v4 (A+D, best)",
-    ]
+st.title("ICD-10 Code Prediction")
 
-    col_input, col_settings = st.columns([2, 1])
+MODEL_OPTIONS = [
+    "Model A (TF-IDF + SGD)",
+    "Model B (ClinicalBERT)",
+    "Model C v1 (Chunk+Attn)",
+    "Model C v2 (Fixed+Focal)",
+    "Model D (BiLSTM-LAAT)",
+    "Ensemble v4 (A+D, best)",
+]
 
-    with col_settings:
-        st.markdown("**Model**")
-        selected_model = st.selectbox("Choose model", MODEL_OPTIONS, label_visibility="collapsed")
-        top_n = st.slider("Top N codes to show", 5, 50, 15)
-        threshold = st.slider("Decision threshold", 0.05, 0.95, 0.50, 0.025)
+col_input, col_settings = st.columns([2, 1])
 
-        st.divider()
-        st.markdown("**Datasets path**")
-        data_path = st.text_input(
-            "Path to datasets/processed/",
-            value=str(PROJECT_ROOT / "datasets" / "processed"),
-            help="Directory with mlb.pkl, tfidf_vectorizer.pkl, cohort_*_clean.parquet, etc.",
+with col_settings:
+    st.markdown("**Model**")
+    selected_model = st.selectbox("Choose model", MODEL_OPTIONS, label_visibility="collapsed")
+    top_n = st.slider("Top N codes to show", 5, 50, 15)
+
+    try:
+        threshold = get_fixed_threshold(selected_model)
+    except Exception as e:
+        st.error(
+            "Could not load the fixed decision threshold from your saved evaluation JSON files.\n\n"
+            f"**Error:** `{e}`\n\n"
+            "Re-run the model evaluation notebooks so `test_results.json` / `results.json` / "
+            "`ensemble_config.json` exist under `data/models/`."
         )
-
-    with col_input:
-        selected_sample = st.selectbox(
-            "Load a sample note:", ["Custom"] + list(SAMPLE_NOTES.keys())
-        )
-        default_text = SAMPLE_NOTES.get(selected_sample, "")
-        text_input = st.text_area(
-            "Enter discharge summary:",
-            value=default_text,
-            height=280,
-            placeholder="Paste a clinical discharge summary here...",
-        )
-
-    if st.button("Predict ICD-10 Codes", type="primary", use_container_width=True):
-        if not text_input or len(text_input.strip()) < 10:
-            st.warning("Please enter a discharge summary (at least 10 characters).")
-            st.stop()
-
-        dp = Path(data_path)
-
-        # ── Model A ──────────────────────────────────────────────
-        if selected_model == "Model A (TF-IDF + SGD)":
-            vec, clf, mlb = try_load_model_a(data_path)
-            if vec is None:
-                st.error(
-                    f"Could not load Model A artifacts.\n\n"
-                    f"Make sure these files exist:\n"
-                    f"- `{data_path}/tfidf_vectorizer.pkl`\n"
-                    f"- `{data_path}/mlb.pkl`\n"
-                    f"- `data/models/model_a/clf_sgd.pkl`\n\n"
-                    f"These are created by notebook `03_model_a_tfidf_baseline_local.ipynb`."
-                )
-                st.stop()
-            if clf is None:
-                st.error(
-                    f"`clf_sgd.pkl` not found in `data/models/model_a/`.\n\n"
-                    f"Run notebook `03_model_a_tfidf_baseline_local.ipynb` to train and save the classifier."
-                )
-                st.stop()
-
-            vocab = list(mlb.classes_)
-            cleaned = clean_text(text_input)
-            x = vec.transform([cleaned])
-            probs = clf.predict_proba(x)[0]
-
-            st.divider()
-            render_predictions(probs, vocab, top_n, threshold)
-
-        # ── Model B (ClinicalBERT) ───────────────────────────────
-        elif selected_model == "Model B (ClinicalBERT)":
-            with st.spinner("Loading Model B (ClinicalBERT)..."):
-                model_b, tokenizer_b, mlb_b, err_b = try_load_model_b(data_path)
-            if err_b:
-                st.error(
-                    f"Could not load Model B.\n\n**Error:** {err_b}\n\n"
-                    f"Make sure `{data_path}/mlb.pkl` exists and "
-                    f"`data/models/model_b/best_model.pt` is present.\n\n"
-                    f"Created by notebook `04_model_b_transformer_local.ipynb`."
-                )
-                st.stop()
-
-            vocab = list(mlb_b.classes_)
-            with st.spinner("Running inference..."):
-                probs = predict_b(text_input, model_b, tokenizer_b)
-
-            st.divider()
-            render_predictions(probs, vocab, top_n, threshold)
-
-        # ── Model C v1 (Chunk+Attn) ─────────────────────────────
-        elif selected_model == "Model C v1 (Chunk+Attn)":
-            with st.spinner("Loading Model C v1 (Chunk+Attn)..."):
-                model_c, tok_c, mlb_c, temp_c, err_c = try_load_model_c(data_path, version="v1")
-            if err_c:
-                st.error(
-                    f"Could not load Model C v1.\n\n**Error:** {err_c}\n\n"
-                    f"Make sure `{data_path}/mlb.pkl` exists and "
-                    f"`data/models/model_c/best_model.pt` is present.\n\n"
-                    f"Created by notebook `06_model_c_training.ipynb`."
-                )
-                st.stop()
-
-            vocab = list(mlb_c.classes_)
-            with st.spinner("Running inference (chunked BERT)..."):
-                probs = predict_c(text_input, model_c, tok_c, temperature=temp_c)
-
-            st.divider()
-            render_predictions(probs, vocab, top_n, threshold)
-
-        # ── Model C v2 (Fixed+Focal) ────────────────────────────
-        elif selected_model == "Model C v2 (Fixed+Focal)":
-            with st.spinner("Loading Model C v2 (Fixed+Focal)..."):
-                model_c2, tok_c2, mlb_c2, temp_c2, err_c2 = try_load_model_c(data_path, version="v2")
-            if err_c2:
-                st.error(
-                    f"Could not load Model C v2.\n\n**Error:** {err_c2}\n\n"
-                    f"Make sure `{data_path}/mlb.pkl` exists and "
-                    f"`data/models/model_c/v2/best_model.pt` is present.\n\n"
-                    f"Created by notebook `06_model_c_training_v2.ipynb`."
-                )
-                st.stop()
-
-            vocab = list(mlb_c2.classes_)
-            with st.spinner("Running inference (chunked BERT v2)..."):
-                probs = predict_c(text_input, model_c2, tok_c2, temperature=temp_c2)
-
-            st.divider()
-            render_predictions(probs, vocab, top_n, threshold)
-
-        # ── Model D (BiLSTM-LAAT) ───────────────────────────────
-        elif selected_model == "Model D (BiLSTM-LAAT)":
-            with st.spinner("Loading Model D (BiLSTM-LAAT)..."):
-                model_d, word2idx, mlb_d, err_d = try_load_model_d(data_path)
-            if err_d:
-                st.error(
-                    f"Could not load Model D.\n\n**Error:** {err_d}\n\n"
-                    f"Make sure these files exist:\n"
-                    f"- `{data_path}/mlb.pkl`\n"
-                    f"- `{data_path}/word_vocab.pkl`\n"
-                    f"- `data/models/model_d/best_model.pt`\n\n"
-                    f"Created by notebook `08_model_d_bilstm_local.ipynb`."
-                )
-                st.stop()
-
-            vocab = list(mlb_d.classes_)
-            with st.spinner("Running inference (BiLSTM)..."):
-                probs = predict_d(text_input, model_d, word2idx)
-
-            st.divider()
-            render_predictions(probs, vocab, top_n, threshold)
-
-        # ── Ensemble v4 (A+D, best) ─────────────────────────────
-        elif selected_model == "Ensemble v4 (A+D, best)":
-            ens_cfg = load_ensemble_config()
-            if ens_cfg is None or "ensemble_v4" not in ens_cfg:
-                st.error("Ensemble config not found at `data/models/ensemble/ensemble_config.json`.")
-                st.stop()
-
-            v4 = ens_cfg["ensemble_v4"]
-            w_a, w_d = v4["weight_A"], v4["weight_D"]
-
-            # Load Model A
-            vec_a, clf_a, mlb_a = try_load_model_a(data_path)
-            if vec_a is None or clf_a is None:
-                st.error(
-                    f"Ensemble requires Model A.\n\n"
-                    f"Make sure `{data_path}/tfidf_vectorizer.pkl`, `{data_path}/mlb.pkl`, "
-                    f"and `data/models/model_a/clf_sgd.pkl` exist."
-                )
-                st.stop()
-
-            # Load Model D
-            with st.spinner("Loading Ensemble v4 (Model A + Model D)..."):
-                model_d, word2idx, mlb_d, err_d = try_load_model_d(data_path)
-            if err_d:
-                st.error(
-                    f"Ensemble requires Model D.\n\n**Error:** {err_d}\n\n"
-                    f"Make sure `{data_path}/mlb.pkl`, `{data_path}/word_vocab.pkl`, "
-                    f"and `data/models/model_d/best_model.pt` exist."
-                )
-                st.stop()
-
-            vocab = list(mlb_a.classes_)
-            with st.spinner("Running ensemble inference (A + D)..."):
-                cleaned = clean_text(text_input)
-                x_a = vec_a.transform([cleaned])
-                probs_a = clf_a.predict_proba(x_a)[0]
-                probs_d_arr = predict_d(text_input, model_d, word2idx)
-                probs = w_a * probs_a + w_d * probs_d_arr
-
-            st.divider()
-            st.info(f"Ensemble v4: **{w_a:.0%}** Model A + **{w_d:.0%}** Model D")
-            render_predictions(probs, vocab, top_n, threshold)
-
-# ══════════════════════════════════════════════════════════════════════
-#  PAGE: Overview
-# ══════════════════════════════════════════════════════════════════════
-elif page == "Overview":
-    st.title("Model Comparison Overview")
-    st.markdown(
-        "Side-by-side performance of all models and ensembles on the **test set** "
-        "(50-label ICD-10 multi-label classification on MIMIC-IV discharge summaries)."
-    )
-
-    df = load_comparison()
-    if df is None:
-        st.error("Comparison CSV not found. Run the ensemble evaluation notebook first.")
         st.stop()
-
-    st.subheader("Performance Table")
-    st.dataframe(
-        df.style
-          .highlight_max(subset=["Micro-F1", "Macro-F1", "Micro-Prec", "Micro-Rec", "Macro-AUPRC", "Micro-AUROC"], color="#c6efce")
-          .format({
-              "Threshold": "{:.3f}",
-              "Micro-F1": "{:.4f}", "Macro-F1": "{:.4f}",
-              "Micro-Prec": "{:.4f}", "Micro-Rec": "{:.4f}",
-              "Macro-AUPRC": "{:.4f}", "Micro-AUROC": "{:.4f}",
-          }),
-        use_container_width=True,
-        hide_index=True,
-    )
+    st.metric("Decision threshold (fixed)", f"{threshold:.3f}")
 
     st.divider()
-
-    st.subheader("Micro-F1 Comparison")
-    chart_df = df[["Model", "Micro-F1"]].set_index("Model").sort_values("Micro-F1", ascending=True)
-    st.bar_chart(chart_df, horizontal=True)
-
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("Precision vs Recall")
-        pr_df = df[["Model", "Micro-Prec", "Micro-Rec"]].set_index("Model")
-        st.bar_chart(pr_df)
-    with col2:
-        st.subheader("AUROC Comparison")
-        auc_df = df[["Model", "Micro-AUROC"]].set_index("Model").sort_values("Micro-AUROC", ascending=True)
-        st.bar_chart(auc_df, horizontal=True)
-
-    bars_png = MODELS_DIR / "ensemble" / "model_comparison_bars.png"
-    if bars_png.exists():
-        st.divider()
-        st.subheader("Detailed Comparison (from Ensemble Notebook)")
-        st.image(str(bars_png), use_container_width=True)
-
-    ens_cfg = load_ensemble_config()
-    if ens_cfg:
-        st.divider()
-        st.subheader("Ensemble Configurations")
-        best_ens = ens_cfg.get("best_ensemble", "N/A")
-        st.success(f"**Best ensemble:** {best_ens}")
-        for key in ["ensemble_v1", "ensemble_v2", "ensemble_v3", "ensemble_v4", "ensemble_v5"]:
-            if key in ens_cfg:
-                with st.expander(key.replace("_", " ").title()):
-                    st.json(ens_cfg[key])
-
-# ══════════════════════════════════════════════════════════════════════
-#  PAGE: Model Details
-# ══════════════════════════════════════════════════════════════════════
-elif page == "Model Details":
-    st.title("Individual Model Details")
-
-    selected = st.selectbox("Select model", list(MODEL_DIRS.keys()))
-    model_dir = MODEL_DIRS[selected]
-
-    if not model_dir.exists():
-        st.warning(f"Directory not found: `{model_dir}`")
-        st.stop()
-
-    results_files = list(model_dir.glob("*results*.json"))
-    if results_files:
-        st.subheader("Test Results")
-        for rf in results_files:
-            with open(rf) as f:
-                results = json.load(f)
-            with st.expander(rf.name, expanded=True):
-                if isinstance(results, dict):
-                    flat = {}
-                    for k, v in results.items():
-                        if isinstance(v, dict):
-                            for k2, v2 in v.items():
-                                flat[f"{k} / {k2}"] = v2
-                        else:
-                            flat[k] = v
-                    cols = st.columns(min(len(flat), 4))
-                    for i, (k, v) in enumerate(flat.items()):
-                        with cols[i % 4]:
-                            if isinstance(v, float):
-                                st.metric(k, f"{v:.4f}")
-                            else:
-                                st.metric(k, str(v))
-
-    head_tail = list(model_dir.glob("head_tail_f1*.png"))
-    if head_tail:
-        st.subheader("Head vs Tail Label Performance")
-        for img in head_tail:
-            st.image(str(img), use_container_width=True)
-
-    all_pngs = find_images(model_dir)
-    other_pngs = [p for p in all_pngs if "head_tail" not in p.name and "training" not in p.name]
-    if other_pngs:
-        st.subheader("Other Plots")
-        for img in other_pngs:
-            st.image(str(img), caption=img.stem, use_container_width=True)
-
-    # comparison CSVs if they exist
-    csv_files = list(model_dir.glob("*comparison*.csv"))
-    for cf in csv_files:
-        st.subheader(cf.stem.replace("_", " ").title())
-        st.dataframe(pd.read_csv(cf), use_container_width=True, hide_index=True)
-
-# ══════════════════════════════════════════════════════════════════════
-#  PAGE: Training Curves
-# ══════════════════════════════════════════════════════════════════════
-elif page == "Training Curves":
-    st.title("Training Curves")
-
-    selected = st.selectbox("Select model", list(MODEL_DIRS.keys()))
-    model_dir = MODEL_DIRS[selected]
-
-    if not model_dir.exists():
-        st.warning(f"Directory not found: `{model_dir}`")
-        st.stop()
-
-    history_files = list(model_dir.glob("*training_history*.csv"))
-    if history_files:
-        for hf in sorted(history_files):
-            st.subheader(f"Training History ({hf.name})")
-            hist = pd.read_csv(hf)
-            st.dataframe(hist, use_container_width=True, hide_index=True)
-
-            if "train_loss" in hist.columns:
-                st.line_chart(hist.set_index("epoch")["train_loss"], y_label="Loss", x_label="Epoch")
-
-            f1_cols = [c for c in hist.columns if "f1" in c.lower()]
-            if f1_cols:
-                st.line_chart(hist.set_index("epoch")[f1_cols], y_label="F1", x_label="Epoch")
-
-    curve_pngs = [p for p in find_images(model_dir) if "training" in p.name]
-    if curve_pngs:
-        st.subheader("Saved Training Plots")
-        for img in curve_pngs:
-            st.image(str(img), caption=img.stem, use_container_width=True)
-    elif not history_files:
-        st.info("No training history found for this model.")
-
-# ══════════════════════════════════════════════════════════════════════
-#  PAGE: Confusion Matrices
-# ══════════════════════════════════════════════════════════════════════
-elif page == "Confusion Matrices":
-    st.title("Confusion Matrices")
-    st.markdown(
-        "Per-label 2x2 confusion matrices and 50-label confusion heatmaps. "
-        "Generated when you run the evaluation cells in the notebooks."
+    st.markdown("**Datasets path**")
+    data_path = st.text_input(
+        "Path to datasets/processed/",
+        value=str(PROJECT_ROOT / "datasets" / "processed"),
+        help="Directory with mlb.pkl, tfidf_vectorizer.pkl, cohort_*_clean.parquet, etc.",
     )
 
-    found_any = False
-    for name, mdir in MODEL_DIRS.items():
-        if not mdir.exists():
-            continue
-        cm_images = [p for p in find_images(mdir) if "confusion" in p.name.lower()]
-        if cm_images:
-            found_any = True
-            st.subheader(name)
-            for img in cm_images:
-                st.image(str(img), caption=img.stem, use_container_width=True)
+with col_input:
+    selected_sample = st.selectbox(
+        "Load a sample note:", ["Custom"] + list(SAMPLE_NOTES.keys())
+    )
+    default_text = SAMPLE_NOTES.get(selected_sample, "")
+    text_input = st.text_area(
+        "Enter discharge summary:",
+        value=default_text,
+        height=280,
+        placeholder="Paste a clinical discharge summary here...",
+    )
 
-    ens_dir = MODELS_DIR / "ensemble"
-    if ens_dir.exists():
-        cm_ens = [p for p in find_images(ens_dir) if "confusion" in p.name.lower()]
-        if cm_ens:
-            found_any = True
-            st.subheader("Ensemble")
-            for img in cm_ens:
-                st.image(str(img), caption=img.stem, use_container_width=True)
+if st.button("Predict ICD-10 Codes", type="primary", use_container_width=True):
+    if not text_input or len(text_input.strip()) < 10:
+        st.warning("Please enter a discharge summary (at least 10 characters).")
+        st.stop()
 
-    if not found_any:
-        st.warning(
-            "No confusion matrix images found yet. Run the notebooks to generate them.\n\n"
-            "The confusion matrix code is in each model notebook under sections like "
-            "**'Confusion Matrix (Per-Label)'** and **'Full 50-Label Confusion Analysis'**."
-        )
+    # Model A: sklearn TF-IDF → sparse probs (fast baseline).
+    if selected_model == "Model A (TF-IDF + SGD)":
+        vec, clf, mlb = try_load_model_a(data_path)
+        if vec is None:
+            st.error(
+                f"Could not load Model A artifacts.\n\n"
+                f"Make sure these files exist:\n"
+                f"- `{data_path}/tfidf_vectorizer.pkl`\n"
+                f"- `{data_path}/mlb.pkl`\n"
+                f"- `data/models/model_a/clf_sgd.pkl`\n\n"
+                f"These are created by notebook `03_model_a_tfidf_baseline_local.ipynb`."
+            )
+            st.stop()
+        if clf is None:
+            st.error(
+                f"`clf_sgd.pkl` not found in `data/models/model_a/`.\n\n"
+                f"Run notebook `03_model_a_tfidf_baseline_local.ipynb` to train and save the classifier."
+            )
+            st.stop()
 
-# ══════════════════════════════════════════════════════════════════════
-#  PAGE: EDA
-# ══════════════════════════════════════════════════════════════════════
-elif page == "EDA":
-    st.title("Exploratory Data Analysis")
-    st.markdown("Plots from the preprocessing and EDA notebook.")
+        vocab = list(mlb.classes_)
+        cleaned = clean_text(text_input)
+        x = vec.transform([cleaned])
+        probs = clf.predict_proba(x)[0]
 
-    eda_images = find_images(DATA_DIR)
-    eda_images = [p for p in eda_images if p.parent == DATA_DIR]
+        st.divider()
+        render_predictions(probs, vocab, top_n, threshold)
 
-    if not eda_images:
-        st.info("No EDA plots found in `data/`.")
-    else:
-        for img in eda_images:
-            label = img.stem.replace("_", " ").title()
-            st.subheader(label)
-            st.image(str(img), use_container_width=True)
+    # Model B: single-window ClinicalBERT + linear head.
+    elif selected_model == "Model B (ClinicalBERT)":
+        with st.spinner("Loading Model B (ClinicalBERT)..."):
+            model_b, tokenizer_b, mlb_b, err_b = try_load_model_b(data_path)
+        if err_b:
+            st.error(
+                f"Could not load Model B.\n\n**Error:** {err_b}\n\n"
+                f"Make sure `{data_path}/mlb.pkl` exists and "
+                f"`data/models/model_b/best_model.pt` is present.\n\n"
+                f"Created by notebook `04_model_b_transformer_local.ipynb`."
+            )
+            st.stop()
 
-# ── Footer ────────────────────────────────────────────────────────────
+        vocab = list(mlb_b.classes_)
+        with st.spinner("Running inference..."):
+            probs = predict_b(text_input, model_b, tokenizer_b)
+
+        st.divider()
+        render_predictions(probs, vocab, top_n, threshold)
+
+    # Model C v1: first chunk+attention checkpoint (root `model_c/`).
+    elif selected_model == "Model C v1 (Chunk+Attn)":
+        with st.spinner("Loading Model C v1 (Chunk+Attn)..."):
+            model_c, tok_c, mlb_c, temp_c, err_c = try_load_model_c(data_path, version="v1")
+        if err_c:
+            st.error(
+                f"Could not load Model C v1.\n\n**Error:** {err_c}\n\n"
+                f"Make sure `{data_path}/mlb.pkl` exists and "
+                f"`data/models/model_c/best_model.pt` is present.\n\n"
+                f"Created by notebook `06_model_c_training.ipynb`."
+            )
+            st.stop()
+
+        vocab = list(mlb_c.classes_)
+        with st.spinner("Running inference (chunked BERT)..."):
+            probs = predict_c(text_input, model_c, tok_c, temperature=temp_c)
+
+        st.divider()
+        render_predictions(probs, vocab, top_n, threshold)
+
+    # Model C v2: focal loss + architecture fixes under `model_c/v2/`.
+    elif selected_model == "Model C v2 (Fixed+Focal)":
+        with st.spinner("Loading Model C v2 (Fixed+Focal)..."):
+            model_c2, tok_c2, mlb_c2, temp_c2, err_c2 = try_load_model_c(data_path, version="v2")
+        if err_c2:
+            st.error(
+                f"Could not load Model C v2.\n\n**Error:** {err_c2}\n\n"
+                f"Make sure `{data_path}/mlb.pkl` exists and "
+                f"`data/models/model_c/v2/best_model.pt` is present.\n\n"
+                f"Created by notebook `06_model_c_training_v2.ipynb`."
+            )
+            st.stop()
+
+        vocab = list(mlb_c2.classes_)
+        with st.spinner("Running inference (chunked BERT v2)..."):
+            probs = predict_c(text_input, model_c2, tok_c2, temperature=temp_c2)
+
+        st.divider()
+        render_predictions(probs, vocab, top_n, threshold)
+
+    # Model D: word-level BiLSTM + LAAT (needs `word_vocab.pkl`).
+    elif selected_model == "Model D (BiLSTM-LAAT)":
+        with st.spinner("Loading Model D (BiLSTM-LAAT)..."):
+            model_d, word2idx, mlb_d, err_d = try_load_model_d(data_path)
+        if err_d:
+            st.error(
+                f"Could not load Model D.\n\n**Error:** {err_d}\n\n"
+                f"Make sure these files exist:\n"
+                f"- `{data_path}/mlb.pkl`\n"
+                f"- `{data_path}/word_vocab.pkl`\n"
+                f"- `data/models/model_d/best_model.pt`\n\n"
+                f"Created by notebook `08_model_d_bilstm_local.ipynb`."
+            )
+            st.stop()
+
+        vocab = list(mlb_d.classes_)
+        with st.spinner("Running inference (BiLSTM)..."):
+            probs = predict_d(text_input, model_d, word2idx)
+
+        st.divider()
+        render_predictions(probs, vocab, top_n, threshold)
+
+    # Ensemble v4: convex blend of A and D probs; weights from ensemble JSON.
+    elif selected_model == "Ensemble v4 (A+D, best)":
+        ens_cfg = load_ensemble_config()
+        if ens_cfg is None or "ensemble_v4" not in ens_cfg:
+            st.error("Ensemble config not found at `data/models/ensemble/ensemble_config.json`.")
+            st.stop()
+
+        v4 = ens_cfg["ensemble_v4"]
+        w_a, w_d = v4["weight_A"], v4["weight_D"]
+
+        # Load Model A
+        vec_a, clf_a, mlb_a = try_load_model_a(data_path)
+        if vec_a is None or clf_a is None:
+            st.error(
+                f"Ensemble requires Model A.\n\n"
+                f"Make sure `{data_path}/tfidf_vectorizer.pkl`, `{data_path}/mlb.pkl`, "
+                f"and `data/models/model_a/clf_sgd.pkl` exist."
+            )
+            st.stop()
+
+        # Load Model D
+        with st.spinner("Loading Ensemble v4 (Model A + Model D)..."):
+            model_d, word2idx, mlb_d, err_d = try_load_model_d(data_path)
+        if err_d:
+            st.error(
+                f"Ensemble requires Model D.\n\n**Error:** {err_d}\n\n"
+                f"Make sure `{data_path}/mlb.pkl`, `{data_path}/word_vocab.pkl`, "
+                f"and `data/models/model_d/best_model.pt` exist."
+            )
+            st.stop()
+
+        vocab = list(mlb_a.classes_)
+        with st.spinner("Running ensemble inference (A + D)..."):
+            cleaned = clean_text(text_input)
+            x_a = vec_a.transform([cleaned])
+            probs_a = clf_a.predict_proba(x_a)[0]
+            probs_d_arr = predict_d(text_input, model_d, word2idx)
+            probs = w_a * probs_a + w_d * probs_d_arr
+
+        st.divider()
+        st.info(f"Ensemble v4: **{w_a:.0%}** Model A + **{w_d:.0%}** Model D")
+        render_predictions(probs, vocab, top_n, threshold)
+
 st.divider()
 st.caption(
     "CS6120 NLP — ICD-10 Code Prediction from MIMIC-IV Discharge Summaries | "

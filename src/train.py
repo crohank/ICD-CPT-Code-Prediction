@@ -1,7 +1,9 @@
 """
-Unified training loop for Model B and Model C.
-Supports fp16 mixed precision, gradient accumulation, focal loss,
-early stopping, and mid-epoch checkpointing.
+Training entry points for the transformer models (B and C).
+
+One module on purpose: both share the same optimizer/scheduler shape, AMP
+guards, and metric logging. Model D has its own script-style loop in the
+notebooks but could call into pieces of this if you unify later.
 """
 import numpy as np
 import pandas as pd
@@ -28,9 +30,7 @@ def set_seed(seed: int = SEED):
         torch.cuda.manual_seed_all(seed)
 
 
-# ═══════════════════════════════════════════════════════════════════════
-#  Focal Loss — handles class imbalance without distorting calibration
-# ═══════════════════════════════════════════════════════════════════════
+# Focal loss down-weights "easy" negatives so rare ICD codes still move the model.
 
 def sigmoid_focal_loss(
     logits: torch.Tensor,
@@ -69,9 +69,7 @@ def sigmoid_focal_loss(
     return loss
 
 
-# ═══════════════════════════════════════════════════════════════════════
-#  Training Loop
-# ═══════════════════════════════════════════════════════════════════════
+# Generic train/validate loop with checkpointing hooks.
 
 def train_model(
     model: nn.Module,

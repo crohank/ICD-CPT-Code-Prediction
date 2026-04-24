@@ -21,7 +21,7 @@ from .schemas import (
 )
 from .model_service import ModelService
 
-# ── Global model service ───────────────────────────────────────────────
+# One shared loader for the whole process — warmed up in the lifespan hook below.
 service = ModelService()
 
 
@@ -50,8 +50,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-# ── Endpoints ──────────────────────────────────────────────────────────
 
 @app.post("/predict", response_model=PredictionResponse)
 async def predict(request: PredictionRequest):

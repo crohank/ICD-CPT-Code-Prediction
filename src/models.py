@@ -5,6 +5,8 @@ Model architectures for ICD-10 code prediction.
 - LabelAttentionClassifier: Model C — Chunk-based BERT + per-label attention
 - TemperatureScaler:        Post-hoc probability calibration
 - EnsemblePredictor:        Weighted average of Model A + Model C probabilities
+
+Implementation detail: sections below follow model families (B → C → D → calibration → ensemble).
 """
 import numpy as np
 import torch
@@ -18,9 +20,7 @@ from .config import (
 )
 
 
-# ═══════════════════════════════════════════════════════════════════════
-#  Model B — Standard ClinicalBERT + Linear Head
-# ═══════════════════════════════════════════════════════════════════════
+# --- Model B: vanilla [CLS] pooling + linear head ---
 
 class ICDClassifier(nn.Module):
     """
@@ -42,9 +42,7 @@ class ICDClassifier(nn.Module):
         return self.head(cls)                        # raw logits
 
 
-# ═══════════════════════════════════════════════════════════════════════
-#  Model C — Chunk-Based BERT + Label-Wise Attention (v2 — fixed)
-# ═══════════════════════════════════════════════════════════════════════
+# --- Model C: multi-chunk BERT + per-label attention (v2 fixes noted in docstring) ---
 
 class LabelAttentionClassifier(nn.Module):
     """
@@ -168,7 +166,7 @@ class LabelAttentionClassifier(nn.Module):
         # Reshape back: (batch, max_chunks * seq_len, hidden)
         hidden = hidden.view(batch_size, max_chunks * seq_len, -1)
 
-        # ── Build proper token mask (FIX #1: use chunk_counts) ────────
+        # Mask padded chunk positions using per-sample chunk counts (v2 fix).
         # Start with token-level mask from attention_mask
         token_mask = attention_mask.view(batch_size, max_chunks * seq_len).float()
 
@@ -183,7 +181,7 @@ class LabelAttentionClassifier(nn.Module):
             # Combine: token is valid only if BOTH its attention_mask=1 AND its chunk is real
             token_mask = token_mask * chunk_token_mask
 
-        # ── Label-wise attention ──────────────────────────────────────
+        # Per-label attention over all real tokens across chunks.
         # label_queries: (num_labels, hidden)
         # Attention scores: (batch, num_labels, total_tokens)
         scores = torch.matmul(hidden, self.label_queries.T)  # (B, T, L)
@@ -229,9 +227,7 @@ class LabelAttentionClassifier(nn.Module):
               f"Trainable params: {trainable:,}")
 
 
-# ═══════════════════════════════════════════════════════════════════════
-#  Model D — BiLSTM + Label Attention (LAAT, Vu et al. IJCAI 2020)
-# ═══════════════════════════════════════════════════════════════════════
+# --- Model D: BiLSTM encoder + LAAT-style label attention (word-level) ---
 
 class BiLSTMLAAT(nn.Module):
     """
@@ -360,9 +356,7 @@ class BiLSTMLAAT(nn.Module):
         return logits
 
 
-# ═══════════════════════════════════════════════════════════════════════
-#  Temperature Scaler — Post-hoc Probability Calibration
-# ═══════════════════════════════════════════════════════════════════════
+# --- Single scalar temperature on logits (optional calibration after training) ---
 
 class TemperatureScaler(nn.Module):
     """
@@ -419,9 +413,7 @@ class TemperatureScaler(nn.Module):
         return calibrated.numpy()
 
 
-# ═══════════════════════════════════════════════════════════════════════
-#  Ensemble Predictor — Weighted Average of Model A + Model C
-# ═══════════════════════════════════════════════════════════════════════
+# --- Blend sparse + neural probabilities (weight tuned on val) ---
 
 class EnsemblePredictor:
     """

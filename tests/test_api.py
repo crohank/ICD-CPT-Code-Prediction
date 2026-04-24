@@ -1,4 +1,7 @@
-"""Tests for the FastAPI endpoints (uses TestClient, no real models needed)."""
+"""Schema and routing smoke tests for the API package.
+
+Heavy model loading is not exercised here — see integration tests or manual runs.
+"""
 import sys
 sys.path.insert(0, '..')
 

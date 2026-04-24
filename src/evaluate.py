@@ -1,5 +1,7 @@
 """
-Evaluation utilities: metrics computation, threshold tuning, head/tail analysis.
+Offline evaluation helpers: F1 at a threshold, threshold sweeps, and frequency
+bucket breakdowns. Nothing here touches the network — pass numpy probability
+matrices from saved preds or a forward pass.
 """
 import numpy as np
 import pandas as pd

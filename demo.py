@@ -3,14 +3,16 @@
 ICD-10 Code Prediction — Interactive Demo
 ==========================================
 
-Run:  python demo.py
+Entry point: `python demo.py` from the repo root.
 
-Offers two modes:
-  1. CLI  — pick a model + sample input → see predictions in terminal
-  2. Dashboard — launch the Streamlit web app
+This script tries hard to "just work" on a fresh machine: it can create a
+`.venv`, install deps, and re-launch itself so you are not fighting PEP 668
+or a too-new Python. After that you get either a terminal flow (pick model,
+paste or choose a sample note) or the Streamlit UI.
 
-Assumes the full project directory is available with weight files
-in data/models/ and processed data in datasets/processed/.
+You still need the trained weights under `data/models/` (or `models/`) and
+the processed pickles under `datasets/processed/` — those come from the
+project notebooks, not from pip.
 
 CS6120 NLP — Final Project
 """
@@ -27,12 +29,15 @@ import shutil
 import warnings
 from pathlib import Path
 
+# Everything is resolved relative to this file so the demo works no matter
+# where you invoke Python from, as long as the repo layout is intact.
 PROJECT_ROOT = Path(__file__).resolve().parent
 
-# Keep demo output readable: sklearn model pickle version warnings are common in class projects.
+# sklearn often warns when a pickle was saved under a slightly different version;
+# the demo is not the place to spam that every run.
 warnings.filterwarnings("ignore", message="Trying to unpickle estimator .* from version .*", category=UserWarning)
 
-# ── Dependency bootstrap ──────────────────────────────────────────────
+# --- Dependency bootstrap: venv, compatible Python, first-time pip installs ---
 
 PYTHON_REQ_DISPLAY = ">=3.10,<3.13 (recommended: 3.11)"
 PYTHON_REQ_MIN = (3, 10)
@@ -50,6 +55,8 @@ REQUIRED = [
     ("streamlit",    "streamlit"),
 ]
 
+# Sentinel returned when Model A is skipped (e.g. vectorizer vs clf feature
+# mismatch) so "run all" and the ensemble path do not treat it like a real result.
 SKIP_MODEL = object()
 
 
@@ -193,7 +200,7 @@ def ensure_packages():
         pass
 
 
-# ── Paths ─────────────────────────────────────────────────────────────
+# --- Paths: processed data, checkpoints, optional mirror under `models/` ---
 
 DATA_DIR     = PROJECT_ROOT / "datasets" / "processed"
 MODELS_DIR   = PROJECT_ROOT / "data" / "models"
@@ -215,6 +222,7 @@ def _resolve(primary: Path, alt_base: Path = ALT_MODELS) -> Path:
         return alt
     return primary
 
+# Short plain-English blurbs for the CLI table (full official wording lives in ICD-10).
 ICD10_DESC = {
     "E119":  "Type 2 diabetes w/o complications",
     "I10":   "Essential primary hypertension",
@@ -267,8 +275,7 @@ ICD10_DESC = {
     "E8342": "Hyponatremia",
 }
 
-# ── Sample inputs ─────────────────────────────────────────────────────
-
+# Fabricated-but-realistic discharge snippets so you can try the demo without MIMIC.
 SAMPLES = {
     "Heart Failure + Diabetes": (
         "Patient is a 72-year-old male with a history of type 2 diabetes mellitus, "
@@ -313,8 +320,7 @@ SAMPLES = {
     ),
 }
 
-# ── Text cleaning (mirrors src/data.py) ──────────────────────────────
-
+# Same normalization as `src.data.clean_text` so TF-IDF / word vocab see familiar tokens.
 def clean_text(text):
     text = re.sub(r'\[\*\*[^\]]*\*\*\]', ' ', text)
     text = text.lower()
@@ -323,7 +329,7 @@ def clean_text(text):
     return text
 
 
-# ── Model loaders ────────────────────────────────────────────────────
+# Load pickles / checkpoints. Each loader returns either artifacts or an error string.
 
 def load_model_a():
     import pickle
@@ -546,7 +552,7 @@ def predict_model_d(text, model, word2idx):
     return probs
 
 
-# ── Display helpers ───────────────────────────────────────────────────
+# Threshold + pretty-print for the CLI (Streamlit has its own `get_fixed_threshold`).
 
 def get_threshold(model_key):
     """Load the tuned threshold from the saved results."""
@@ -562,6 +568,7 @@ def get_threshold(model_key):
         if path.exists():
             with open(path) as f:
                 return extractor(json.load(f))
+    # Last resort if someone runs without the notebook outputs; 0.5 is arbitrary.
     return 0.5
 
 
@@ -600,7 +607,7 @@ def print_predictions(probs, vocab, threshold, model_name, top_n=20):
     print()
 
 
-# ── Main menu ────────────────────────────────────────────────────────
+# CLI menu labels (keys must stay in sync with `run_single_model` / `run_ensemble`).
 
 MODEL_CHOICES = [
     ("a", "Model A — TF-IDF + SGD",                       "(sklearn, fastest)"),
@@ -864,6 +871,7 @@ def streamlit_mode():
 
 
 def main():
+    # Outer loop: after CLI predictions you can run again or quit; Streamlit exits the process.
     print()
     print("=" * 60)
     print("  ICD-10 Code Prediction from Discharge Summaries")

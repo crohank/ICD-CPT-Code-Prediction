@@ -1,6 +1,9 @@
 """
-Singleton model service — loads all models once at startup and provides
-inference methods for the API.
+Loads checkpoints once when FastAPI starts, then serves `/predict`.
+
+The API historically ensembles Model A (sparse linear) with Model C (BERT +
+label attention); missing files are skipped with a log line rather than crashing
+the whole app, though `/predict` will 503 if inference cannot run.
 """
 import pickle
 import json
