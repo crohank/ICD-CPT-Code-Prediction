@@ -122,8 +122,7 @@
 % ABSTRACT
 % ══════════════════════════════════════════════════════════════════════
 \begin{abstract}
-\noindent Manual assignment of ICD-10 diagnosis codes costs the U.S.\ healthcare system roughly \$25 billion a year, and the process is slow, tedious, and error prone. We frame ICD-10 coding as a multi-label classification task over the 50 most frequent codes in MIMIC-IV, covering 122,304 hospital admissions. Starting from a TF-IDF + SGD baseline (Micro F1 of 0.60), we develop two neural architectures that can handle full length discharge summaries: a Chunk-BERT architecture with per-label attention that processes full documents via overlapping 512-token windows over Bio\_ClinicalBERT, and a BiLSTM with Label-Aware Attention (BiLSTM-LAAT) encoding up to 4,000 word tokens in a single pass. BiLSTM-LAAT turns out to be the strongest single model, reaching Micro F1 of 0.72 with balanced precision and recall. A weighted ensemble combining BiLSTM-LAAT and TF-IDF + SGD maintains Micro F1 at 0.72 while pushing Macro F1 to 0.67 and AUROC to 0.95. Error analysis reveals that clinically related code pairs (e.g., systolic vs.\ diastolic heart failure) and administrative codes (e.g., BMI categories, DNR status) remain the most challenging. We provide a complete system including a Streamlit web demo and FastAPI service.
-\end{abstract}
+\noindent Manual assignment of ICD-10 diagnosis codes costs the U.S.\ healthcare system roughly \$25 billion a year, and the process is slow, tedious, and error prone. We frame ICD-10 coding as a multi-label classification task over the 50 most frequent codes in MIMIC-IV, covering 122,304 hospital admissions. Starting from a TF-IDF + SGD baseline (Micro F1 of 0.60), we develop two neural architectures that can handle full length discharge summaries: a Chunk-BERT architecture with per-label attention that processes full documents via overlapping 512-token windows over Bio\_ClinicalBERT, and a BiLSTM with Label-Aware Attention (BiLSTM-LAAT) encoding up to 4,000 word tokens in a single pass. BiLSTM-LAAT turns out to be the strongest single model, reaching Micro F1 of 0.72 with balanced precision and recall. A weighted ensemble combining BiLSTM-LAAT and TF-IDF + SGD maintains Micro F1 at 0.72 while pushing Macro F1 to 0.67 and AUROC to 0.95. Error analysis reveals that clinically related code pairs (e.g., systolic vs.\ diastolic heart failure) and administrative codes (e.g., BMI categories, DNR status) remain the most challenging. We built a Streamlit web interface with a FastAPI service to demonstrate ICD-10 prediction.
 
 % ══════════════════════════════════════════════════════════════════════
 % 1. INTRODUCTION
@@ -383,9 +382,9 @@ We experiment with five models spanning three families: a TF-IDF + SGD baseline,
 
 \subsection{TF-IDF + SGD (Model A: Baseline)}
 
-\textbf{Feature extraction.} TF-IDF vectorization with 50,000 features, unigram+bigram range, and sublinear TF scaling ($1 + \log(\text{tf})$) $\rightarrow$ sparse matrix $\mathbf{X} \in \mathbb{R}^{n \times 50{,}000}$.
+\textbf{Feature extraction:} TF-IDF vectorization with 50,000 features, unigram+bigram range, and sublinear TF scaling ($1 + \log(\text{tf})$) $\rightarrow$ sparse matrix $\mathbf{X} \in \mathbb{R}^{n \times 50{,}000}$.
 
-\textbf{Classifier.} \texttt{OneVsRestClassifier} wrapping \texttt{SGDClassifier} with log-loss, L2 regularization, and balanced class weights. Global threshold sweep on validation set $\rightarrow$ $t^* = 0.53$.
+\textbf{Classifier:} OneVsRestClassifier wrapping SGDClassifier with log-loss, L2 regularization, and balanced class weights. Global threshold sweep on validation set $\rightarrow$ $t^* = 0.53$.
 
 \textbf{Training time:} roughly 2 minutes on CPU, compared to hours when training on the full 7,940-label set with SAGA.
 
@@ -439,19 +438,19 @@ Our first proposed approach follows the PLM-ICD recipe \cite{huang2022plmicd}: s
 \label{fig:chunk_bert_arch}
 \end{figure}
 
-\textbf{Chunking.} Up to $K = 6$ overlapping chunks of 512 tokens, stride 256. A chunk-level mask prevents attention to padding.
+\textbf{Chunking:} Up to $K = 6$ overlapping chunks of 512 tokens, stride 256. A chunk-level mask prevents attention to padding.
 
-\textbf{Encoding.} Bio\_ClinicalBERT encodes each chunk $\rightarrow$ $\mathbf{H}_k \in \mathbb{R}^{512 \times 768}$. All concatenated: $\mathbf{H} \in \mathbb{R}^{(K \cdot 512) \times 768}$.
+\textbf{Encoding:} Bio\_ClinicalBERT encodes each chunk $\rightarrow$ $\mathbf{H}_k \in \mathbb{R}^{512 \times 768}$. All concatenated: $\mathbf{H} \in \mathbb{R}^{(K \cdot 512) \times 768}$.
 
-\textbf{Label attention.} Learnable queries $\mathbf{Q} \in \mathbb{R}^{50 \times 768}$ (Xavier-initialized). For each label $l$:
+\textbf{Label attention:} Learnable queries $\mathbf{Q} \in \mathbb{R}^{50 \times 768}$ (Xavier-initialized). For each label $l$:
 \begin{equation}
     \alpha_l = \text{softmax}\!\left(\frac{\mathbf{Q}_l \cdot \mathbf{H}^\top}{\sqrt{768}}\right), \quad \mathbf{c}_l = \alpha_l \cdot \mathbf{H}, \quad \hat{y}_l = \mathbf{w}_l^\top \mathbf{c}_l + b_l
 \end{equation}
 
-\textbf{Two-phase training.}
+\textbf{Two-phase training:}
 \begin{itemize}[nosep,leftmargin=1.5em]
-    \item \textit{Phase 1 (frozen):} 5 epochs at $\text{lr} = 10^{-3}$; trains attention + classifier only.
-    \item \textit{Phase 2 (fine-tune):} 7 epochs at $\text{lr} = 2 \times 10^{-5}$ with last 2 BERT layers unfrozen.
+    \item {Phase 1 - frozen :} 5 epochs at $\text{lr} = 10^{-3}$; trains attention + classifier only.
+    \item {Phase 2  - fine-tune:} 7 epochs at $\text{lr} = 2 \times 10^{-5}$ with last 2 BERT layers unfrozen.
 \end{itemize}
 Effective batch size 32 (micro-batch 4 $\times$ gradient accumulation 8). Focal loss ($\gamma = 2.00$, $\alpha = 0.25$) in Chunk-BERT v2. Early stopping patience = 3.
 
@@ -483,11 +482,11 @@ Effective batch size 32 (micro-batch 4 $\times$ gradient accumulation 8). Focal 
 
 Our second approach sidesteps chunking entirely. Following \citet{vu2020label}, we feed documents of up to 4,000 word tokens straight into a bidirectional LSTM, which can process the whole sequence in one shot. Because the model sees the full note without artificial breaks, it avoids the information loss that happens at chunk boundaries in the BERT-based pipeline.
 
-\textbf{Embedding.} A vocabulary of 50,000 tokens is constructed from the training corpus. Documents are padded or truncated to 4,000 tokens and mapped through a trainable embedding layer ($d = 200$).
+\textbf{Embedding:} A vocabulary of 50,000 tokens is constructed from the training corpus. Documents are padded or truncated to 4,000 tokens and mapped through a trainable embedding layer ($d = 200$).
 
-\textbf{BiLSTM encoder.} A single-layer bidirectional LSTM with 256 hidden units per direction produces contextualized representations $\mathbf{H} \in \mathbb{R}^{T \times 512}$, where each token encodes both left and right context.
+\textbf{BiLSTM encoder:} A single-layer bidirectional LSTM with 256 hidden units per direction produces contextualized representations $\mathbf{H} \in \mathbb{R}^{T \times 512}$, where each token encodes both left and right context.
 
-\textbf{Label attention (LAAT).} Following \citet{vu2020label}, label-specific representations are computed via:
+\textbf{Label attention (LAAT):} Following \citet{vu2020label}, label-specific representations are computed via:
 \begin{align}
     \mathbf{Z} &= \tanh(\mathbf{W} \cdot \mathbf{H}^\top) \in \mathbb{R}^{d_a \times T}, \quad d_a = 256 \\
     \mathbf{A} &= \text{softmax}(\mathbf{U} \cdot \mathbf{Z}) \in \mathbb{R}^{L \times T} \\
@@ -502,9 +501,9 @@ where $\mathbf{W} \in \mathbb{R}^{256 \times 512}$, $\mathbf{U} \in \mathbb{R}^{
 \label{fig:bilstm_arch}
 \end{figure}
 
-\textbf{Training.} AdamW optimizer, $\text{lr} = 10^{-3}$, batch size 32, 10 epochs, focal loss ($\gamma = 2.00$), dropout $p = 0.30$, early stopping with patience 3. \textbf{11,107,506 trainable parameters.}
+\textbf{Training:} AdamW optimizer, $\text{lr} = 10^{-3}$, batch size 32, 10 epochs, focal loss ($\gamma = 2.00$), dropout $p = 0.30$, early stopping with patience 3. \textbf{11,107,506 trainable parameters.}
 
-\textbf{Temperature calibration.} A single scalar parameter $T^*= 0.63$ is fitted on the validation set, reducing expected calibration error from 0.07 to 0.02.
+\textbf{Temperature calibration:} A single scalar parameter $T^*= 0.63$ is fitted on the validation set, reducing expected calibration error from 0.07 to 0.02.
 
 \textbf{Training progression (BiLSTM-LAAT):}
 
