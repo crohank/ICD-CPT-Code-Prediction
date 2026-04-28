@@ -27,3 +27,24 @@ data/models/ensemble/*.npy
 
 # Personal reference docs
 code_walkthrough.md
+
+# Planning and local process docs
+*.plan.md
+mimic-iv_icd-10_prediction_*.plan.md
+
+# Local/cloud setup notes not needed in public repo
+GCP_SETUP.md
+
+# Local scratch/sample files
+Sample Text/
+
+# Local editor/assistant settings
+.claude/
+
+# Common local secrets/config files
+.env
+.env.*
+*.local.*
+secrets*.json
+credentials*.json
+*service-account*.json
