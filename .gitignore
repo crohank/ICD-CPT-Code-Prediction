@@ -31,6 +31,7 @@ code_walkthrough.md
 # Planning and local process docs
 *.plan.md
 mimic-iv_icd-10_prediction_*.plan.md
+interview_context.plan.md
 
 # Local/cloud setup notes not needed in public repo
 GCP_SETUP.md
