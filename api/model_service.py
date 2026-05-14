@@ -106,12 +106,24 @@ class ModelService:
         except FileNotFoundError as e:
             print(f"  Model C not found: {e}")
 
-        # Ensemble config
+        # Ensemble config (supports both old flat schema and new v1–v5 nested schema)
         try:
             with open(ENSEMBLE_DIR / 'ensemble_config.json') as f:
                 ens_cfg = json.load(f)
-            self.ensemble_weight = ens_cfg['weight_model_a']
-            self.threshold_ens = ens_cfg['threshold']
+
+            if 'weight_model_a' in ens_cfg:
+                # Old flat schema
+                self.ensemble_weight = ens_cfg['weight_model_a']
+                self.threshold_ens = ens_cfg['threshold']
+            elif 'ensemble_v1' in ens_cfg:
+                # New nested schema — API only serves A + C, so use v1 (A + C v1)
+                v1 = ens_cfg['ensemble_v1']
+                self.ensemble_weight = v1['weight_A']
+                self.threshold_ens = v1['threshold']
+            else:
+                raise KeyError("ensemble_config.json missing both 'weight_model_a' "
+                               "and 'ensemble_v1'")
+
             self.models_loaded.append('ensemble')
             print(f"  Ensemble loaded (w={self.ensemble_weight}, t={self.threshold_ens})")
         except FileNotFoundError:
